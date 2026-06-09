@@ -37,12 +37,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const registerEmail = document.getElementById("register-email");
     const registerPassword = document.getElementById("register-password");
     const registerPasswordConfirm = document.getElementById("register-password-confirm");
+    const registerCode = document.getElementById("register-code");
 
     const loginError = document.getElementById("login-error");
     const registerError = document.getElementById("register-error");
 
-    const approvalWaiting = document.getElementById("approval-waiting");
-    const pendingLogoutBtn = document.getElementById("pending-logout-btn");
     const logoutBtn = document.getElementById("logout-btn");
 
     const authTabs = document.querySelectorAll(".auth-tab");
@@ -61,12 +60,22 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const connStatus = document.getElementById("conn-status");
 
+    const createInviteBtn = document.getElementById("create-invite-btn");
+    const inviteName = document.getElementById("invite-name");
+    const inviteRole = document.getElementById("invite-role");
+    const inviteCreateMessage = document.getElementById("invite-create-message");
+
     let currentUser = null;
     let currentUserProfile = null;
     let isAdmin = false;
+    let isCustomer = false;
+    let canControlSystem = false;
 
     let currentRoomState = null;
     let allHistoryRecords = [];
+    let usersListenerStarted = false;
+    let inviteListenerStarted = false;
+    let isRegistering = false;
 
     // ==========================================
     // 2. HELPER FUNCTIONS
@@ -91,6 +100,61 @@ document.addEventListener("DOMContentLoaded", () => {
         return error?.message || "Đã xảy ra lỗi.";
     }
 
+    function getRoleLabel(role) {
+        if (role === "admin") return "Admin";
+        if (role === "customer") return "Khách hàng";
+        if (role === "user") return "Khách hàng";
+        return "Khách hàng";
+    }
+
+    function getRoleBadgeClass(role) {
+        if (role === "admin") return "role-admin";
+        if (role === "customer") return "role-customer";
+        if (role === "user") return "role-customer";
+        return "role-customer";
+    }
+
+    function normalizeCode(code) {
+        return String(code || "").trim().toUpperCase();
+    }
+
+    function generateInviteCode(role) {
+        const prefixMap = {
+            customer: "KH",
+            admin: "AD"
+        };
+
+        const prefix = prefixMap[role] || "KH";
+        const number = Math.floor(10000 + Math.random() * 90000);
+        return `${prefix}-${number}`;
+    }
+
+    async function generateUniqueInviteCode(role) {
+        let code = generateInviteCode(role);
+        let snap = await db.ref(`inviteCodes/${code}`).once("value");
+
+        while (snap.exists()) {
+            code = generateInviteCode(role);
+            snap = await db.ref(`inviteCodes/${code}`).once("value");
+        }
+
+        return code;
+    }
+
+    function formatTime(timestamp) {
+        if (!timestamp) return "--";
+        return new Date(timestamp).toLocaleString("vi-VN");
+    }
+
+    function escapeHTML(text) {
+        return String(text ?? "")
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;")
+            .replaceAll("'", "&#039;");
+    }
+
     function switchAuthTab(tabName) {
         authTabs.forEach(tab => {
             tab.classList.toggle("active", tab.dataset.tab === tabName);
@@ -100,7 +164,6 @@ document.addEventListener("DOMContentLoaded", () => {
             form.classList.toggle("active", form.id === `${tabName}-form`);
         });
 
-        approvalWaiting.classList.remove("active");
         setMessage(loginError, "");
         setMessage(registerError, "");
     }
@@ -108,19 +171,7 @@ document.addEventListener("DOMContentLoaded", () => {
     function showLogin() {
         appLayout.classList.remove("active");
         loginScreen.classList.add("active");
-
-        approvalWaiting.classList.remove("active");
         switchAuthTab("login");
-    }
-
-    function showPending() {
-        appLayout.classList.remove("active");
-        loginScreen.classList.add("active");
-
-        authForms.forEach(form => form.classList.remove("active"));
-        authTabs.forEach(tab => tab.classList.remove("active"));
-
-        approvalWaiting.classList.add("active");
     }
 
     function showApp(profile) {
@@ -128,7 +179,10 @@ document.addEventListener("DOMContentLoaded", () => {
         appLayout.classList.add("active");
 
         currentUserProfile = profile;
+
         isAdmin = profile.role === "admin";
+        isCustomer = profile.role === "customer" || profile.role === "user";
+        canControlSystem = true;
 
         document.querySelectorAll(".admin-only").forEach(item => {
             item.style.display = isAdmin ? "flex" : "none";
@@ -136,8 +190,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
         document.getElementById("sidebar-user-name").textContent = profile.name || "Người dùng";
         document.getElementById("setting-user-email").textContent = profile.email || "--";
-        document.getElementById("setting-user-role").textContent = isAdmin ? "Admin" : "User";
+        document.getElementById("setting-user-role").textContent = getRoleLabel(profile.role);
         document.getElementById("setting-user-status").textContent = profile.status || "--";
+        document.getElementById("setting-user-code").textContent = profile.registerCode || "--";
+
+        const modeHint = document.getElementById("mode-hint");
+        const modeCard = document.getElementById("mode-card-container");
+
+        modeHint.textContent = "Nhấn đổi chế độ";
+        modeCard.classList.remove("disabled-card");
 
         goToPage("dashboard-page");
     }
@@ -161,7 +222,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         if (targetId === "accounts-page" && isAdmin) {
-            listenUsersForAdmin();
+            listenAdminData();
         }
     }
 
@@ -196,38 +257,77 @@ document.addEventListener("DOMContentLoaded", () => {
         const email = registerEmail.value.trim();
         const password = registerPassword.value;
         const confirm = registerPasswordConfirm.value;
+        const code = normalizeCode(registerCode.value);
+
+        if (!name) {
+            setMessage(registerError, "Vui lòng nhập họ tên.");
+            return;
+        }
 
         if (password !== confirm) {
             setMessage(registerError, "Mật khẩu nhập lại không khớp.");
             return;
         }
 
+        if (!code) {
+            setMessage(registerError, "Vui lòng nhập mã đăng ký do admin cấp.");
+            return;
+        }
+
         try {
+            const codeSnap = await db.ref(`inviteCodes/${code}`).once("value");
+
+            if (!codeSnap.exists()) {
+                setMessage(registerError, "Mã đăng ký không tồn tại.");
+                return;
+            }
+
+            const codeData = codeSnap.val();
+
+            if (codeData.status !== "unused") {
+                setMessage(registerError, "Mã đăng ký này đã được sử dụng hoặc đã bị khóa.");
+                return;
+            }
+
+            isRegistering = true;
+
             const credential = await auth.createUserWithEmailAndPassword(email, password);
             const uid = credential.user.uid;
 
-            await db.ref(`users/${uid}`).set({
+            const userProfile = {
                 name: name,
                 email: email,
-                role: "user",
-                status: "pending",
+                role: codeData.role || "customer",
+                status: "approved",
+                registerCode: code,
+                registerCodeName: codeData.name || "",
                 createdAt: Date.now(),
-                approvedAt: null,
-                approvedBy: null
+                approvedAt: Date.now(),
+                approvedBy: codeData.createdBy || null
+            };
+
+            await db.ref(`users/${uid}`).set(userProfile);
+
+            await db.ref(`inviteCodes/${code}`).update({
+                status: "used",
+                usedBy: uid,
+                usedByName: name,
+                usedByEmail: email,
+                usedAt: Date.now()
             });
 
+            isRegistering = false;
+
             registerForm.reset();
-            showPending();
+            setMessage(registerError, "Đăng ký thành công. Đang chuyển vào hệ thống...", true);
+            showApp(userProfile);
         } catch (error) {
+            isRegistering = false;
             setMessage(registerError, getFriendlyAuthError(error));
         }
     });
 
     logoutBtn.addEventListener("click", () => {
-        auth.signOut();
-    });
-
-    pendingLogoutBtn.addEventListener("click", () => {
         auth.signOut();
     });
 
@@ -237,34 +337,38 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!user) {
             currentUserProfile = null;
             isAdmin = false;
+            isCustomer = false;
+            canControlSystem = false;
             showLogin();
             return;
         }
 
-        const uid = user.uid;
-        const snap = await db.ref(`users/${uid}`).once("value");
-        let profile = snap.val();
-
-        if (!profile) {
-            profile = {
-                name: user.displayName || user.email,
-                email: user.email,
-                role: "user",
-                status: "pending",
-                createdAt: Date.now(),
-                approvedAt: null,
-                approvedBy: null
-            };
-
-            await db.ref(`users/${uid}`).set(profile);
-        }
-
-        if (profile.status !== "approved") {
-            showPending();
+        if (isRegistering) {
             return;
         }
 
-        showApp(profile);
+        try {
+            const uid = user.uid;
+            const snap = await db.ref(`users/${uid}`).once("value");
+            const profile = snap.val();
+
+            if (!profile) {
+                await auth.signOut();
+                setMessage(loginError, "Tài khoản chưa được cấp quyền bằng mã đăng ký.");
+                return;
+            }
+
+            if (profile.status !== "approved") {
+                await auth.signOut();
+                setMessage(loginError, "Tài khoản chưa được kích hoạt hoặc đã bị khóa.");
+                return;
+            }
+
+            showApp(profile);
+        } catch (error) {
+            await auth.signOut();
+            setMessage(loginError, "Không thể tải thông tin tài khoản.");
+        }
     });
 
     // ==========================================
@@ -982,133 +1086,192 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // ==========================================
-    // 12. ADMIN ACCOUNT APPROVAL
+    // 12. ADMIN ACCOUNT + INVITE CODE MANAGEMENT
     // ==========================================
-    let usersListenerStarted = false;
+    function listenAdminData() {
+        if (!isAdmin) return;
 
-    function listenUsersForAdmin() {
-        if (!isAdmin || usersListenerStarted) return;
+        if (!usersListenerStarted) {
+            usersListenerStarted = true;
 
-        usersListenerStarted = true;
+            db.ref("users").on("value", snapshot => {
+                const users = snapshot.val() || {};
+                renderRegisteredUsers(users);
+            });
+        }
 
-        db.ref("users").on("value", snapshot => {
-            const users = snapshot.val() || {};
+        if (!inviteListenerStarted) {
+            inviteListenerStarted = true;
 
-            const pendingUsers = [];
-            const processedUsers = [];
+            db.ref("inviteCodes").on("value", snapshot => {
+                const codes = snapshot.val() || {};
+                renderInviteCodes(codes);
+            });
+        }
+    }
 
-            Object.entries(users).forEach(([uid, user]) => {
-                const userData = {
-                    uid,
-                    ...user
-                };
+    createInviteBtn.addEventListener("click", async () => {
+        if (!isAdmin) {
+            return;
+        }
 
-                if (userData.status === "pending") {
-                    pendingUsers.push(userData);
-                } else {
-                    processedUsers.push(userData);
-                }
+        const name = inviteName.value.trim();
+        const role = inviteRole.value;
+
+        if (!name) {
+            inviteCreateMessage.textContent = "Vui lòng nhập tên người nhận / username.";
+            inviteCreateMessage.className = "invite-message error";
+            return;
+        }
+
+        try {
+            const code = await generateUniqueInviteCode(role);
+
+            await db.ref(`inviteCodes/${code}`).set({
+                code: code,
+                name: name,
+                role: role,
+                status: "unused",
+                createdAt: Date.now(),
+                createdBy: currentUser.uid,
+                createdByEmail: currentUserProfile.email || "",
+                usedBy: null,
+                usedByName: null,
+                usedByEmail: null,
+                usedAt: null
             });
 
-            renderPendingUsers(pendingUsers);
-            renderProcessedUsers(processedUsers);
+            inviteCreateMessage.innerHTML = `Đã tạo mã: <strong>${code}</strong>`;
+            inviteCreateMessage.className = "invite-message success";
 
-            document.getElementById("pending-count").textContent = pendingUsers.length;
-            document.getElementById("processed-count").textContent = processedUsers.length;
-            document.getElementById("notif-count").textContent = pendingUsers.length;
-        });
+            inviteName.value = "";
+            inviteRole.value = "customer";
+        } catch (error) {
+            inviteCreateMessage.textContent = "Không thể tạo mã đăng ký.";
+            inviteCreateMessage.className = "invite-message error";
+        }
+    });
+
+    function renderInviteCodes(codes) {
+        const unusedList = document.getElementById("unused-codes-list");
+        const usedList = document.getElementById("used-codes-list");
+        const unusedCount = document.getElementById("unused-code-count");
+        const usedCount = document.getElementById("used-code-count");
+
+        const codeArray = Object.values(codes).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+        const unusedCodes = codeArray.filter(code => code.status === "unused");
+        const usedCodes = codeArray.filter(code => code.status === "used");
+
+        unusedCount.textContent = unusedCodes.length;
+        usedCount.textContent = usedCodes.length;
+
+        if (unusedCodes.length === 0) {
+            unusedList.innerHTML = `
+                <div class="empty-state small">
+                    <p>Chưa có mã đăng ký nào.</p>
+                </div>
+            `;
+        } else {
+            unusedList.innerHTML = unusedCodes.map(code => `
+                <div class="approval-user-card invite-card">
+                    <div>
+                        <h4>${escapeHTML(code.code)}</h4>
+                        <p>${escapeHTML(code.name || "--")}</p>
+                        <small>
+                            Vai trò:
+                            <span class="role-badge ${getRoleBadgeClass(code.role)}">
+                                ${getRoleLabel(code.role)}
+                            </span>
+                        </small>
+                        <small>Tạo lúc: ${formatTime(code.createdAt)}</small>
+                    </div>
+
+                    <div class="approval-actions">
+                        <button class="btn btn-danger btn-small" data-delete-code="${escapeHTML(code.code)}">
+                            Xóa
+                        </button>
+                    </div>
+                </div>
+            `).join("");
+
+            unusedList.querySelectorAll("[data-delete-code]").forEach(button => {
+                button.addEventListener("click", async () => {
+                    const code = button.dataset.deleteCode;
+                    if (confirm(`Xóa mã ${code}?`)) {
+                        await db.ref(`inviteCodes/${code}`).remove();
+                    }
+                });
+            });
+        }
+
+        if (usedCodes.length === 0) {
+            usedList.innerHTML = `
+                <div class="empty-state small">
+                    <p>Chưa có mã nào được sử dụng.</p>
+                </div>
+            `;
+        } else {
+            usedList.innerHTML = usedCodes.map(code => `
+                <div class="approval-user-card invite-card processed">
+                    <div>
+                        <h4>${escapeHTML(code.code)}</h4>
+                        <p>${escapeHTML(code.name || "--")}</p>
+                        <small>
+                            Vai trò:
+                            <span class="role-badge ${getRoleBadgeClass(code.role)}">
+                                ${getRoleLabel(code.role)}
+                            </span>
+                        </small>
+                        <small>Dùng bởi: ${escapeHTML(code.usedByName || "--")} - ${escapeHTML(code.usedByEmail || "--")}</small>
+                        <small>Dùng lúc: ${formatTime(code.usedAt)}</small>
+                    </div>
+
+                    <span class="badge-status normal">used</span>
+                </div>
+            `).join("");
+        }
     }
 
-    function renderPendingUsers(users) {
-        const container = document.getElementById("pending-users-list");
+    function renderRegisteredUsers(users) {
+        const container = document.getElementById("registered-users-list");
+        const countEl = document.getElementById("registered-user-count");
 
-        if (users.length === 0) {
+        const userArray = Object.entries(users)
+            .map(([uid, user]) => ({ uid, ...user }))
+            .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+        countEl.textContent = userArray.length;
+        document.getElementById("notif-count").textContent = "0";
+
+        if (userArray.length === 0) {
             container.innerHTML = `
                 <div class="empty-state small">
-                    <p>Chưa có tài khoản chờ duyệt.</p>
+                    <p>Chưa có tài khoản.</p>
                 </div>
             `;
             return;
         }
 
-        container.innerHTML = users.map(user => `
-            <div class="approval-user-card">
-                <div>
-                    <h4>${user.name || "Người dùng"}</h4>
-                    <p>${user.email || "--"}</p>
-                    <small>Đăng ký: ${formatTime(user.createdAt)}</small>
-                </div>
-
-                <div class="approval-actions">
-                    <button class="btn btn-success btn-small" data-approve="${user.uid}">
-                        Duyệt
-                    </button>
-                    <button class="btn btn-danger btn-small" data-reject="${user.uid}">
-                        Từ chối
-                    </button>
-                </div>
-            </div>
-        `).join("");
-
-        container.querySelectorAll("[data-approve]").forEach(button => {
-            button.addEventListener("click", () => approveUser(button.dataset.approve));
-        });
-
-        container.querySelectorAll("[data-reject]").forEach(button => {
-            button.addEventListener("click", () => rejectUser(button.dataset.reject));
-        });
-    }
-
-    function renderProcessedUsers(users) {
-        const container = document.getElementById("processed-users-list");
-
-        if (users.length === 0) {
-            container.innerHTML = `
-                <div class="empty-state small">
-                    <p>Chưa có dữ liệu.</p>
-                </div>
-            `;
-            return;
-        }
-
-        container.innerHTML = users.map(user => `
+        container.innerHTML = userArray.map(user => `
             <div class="approval-user-card processed">
                 <div>
-                    <h4>${user.name || "Người dùng"}</h4>
-                    <p>${user.email || "--"}</p>
-                    <small>Vai trò: ${user.role || "user"}</small>
+                    <h4>${escapeHTML(user.name || "Người dùng")}</h4>
+                    <p>${escapeHTML(user.email || "--")}</p>
+                    <small>
+                        Vai trò:
+                        <span class="role-badge ${getRoleBadgeClass(user.role)}">
+                            ${getRoleLabel(user.role)}
+                        </span>
+                    </small>
+                    <small>Mã: ${escapeHTML(user.registerCode || "--")}</small>
                 </div>
 
                 <span class="badge-status ${user.status === "approved" ? "normal" : "alert"}">
-                    ${user.status || "--"}
+                    ${escapeHTML(user.status || "--")}
                 </span>
             </div>
         `).join("");
-    }
-
-    async function approveUser(uid) {
-        if (!isAdmin) return;
-
-        await db.ref(`users/${uid}`).update({
-            status: "approved",
-            approvedAt: Date.now(),
-            approvedBy: currentUser.uid
-        });
-    }
-
-    async function rejectUser(uid) {
-        if (!isAdmin) return;
-
-        await db.ref(`users/${uid}`).update({
-            status: "rejected",
-            approvedAt: Date.now(),
-            approvedBy: currentUser.uid
-        });
-    }
-
-    function formatTime(timestamp) {
-        if (!timestamp) return "--";
-        return new Date(timestamp).toLocaleString("vi-VN");
     }
 
     // ==========================================
@@ -1124,7 +1287,7 @@ document.addEventListener("DOMContentLoaded", () => {
     function addMessageToUI(text, sender) {
         const msgDiv = document.createElement("div");
         msgDiv.className = `message ${sender}-msg`;
-        msgDiv.innerHTML = `<div class="msg-bubble">${text}</div>`;
+        msgDiv.innerHTML = `<div class="msg-bubble">${escapeHTML(text)}</div>`;
 
         chatMessages.appendChild(msgDiv);
         chatMessages.scrollTop = chatMessages.scrollHeight;

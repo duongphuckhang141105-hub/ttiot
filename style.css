@@ -176,7 +176,7 @@ body {
 
 .login-container {
     width: 100%;
-    max-width: 420px;
+    max-width: 430px;
     padding: 34px;
     text-align: center;
 }
@@ -277,37 +277,6 @@ body {
     margin-top: 12px;
     color: var(--text-muted);
     font-size: 0.85rem;
-}
-
-.approval-waiting {
-    display: none;
-}
-
-.approval-waiting.active {
-    display: block;
-}
-
-.approval-icon {
-    width: 72px;
-    height: 72px;
-    margin: 0 auto 14px;
-    border-radius: 50%;
-    background: rgba(245, 158, 11, 0.15);
-    color: var(--warning);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 2.4rem;
-}
-
-.approval-waiting h3 {
-    margin-bottom: 10px;
-}
-
-.approval-waiting p {
-    color: var(--text-muted);
-    margin-bottom: 20px;
-    line-height: 1.5;
 }
 
 /* LAYOUT */
@@ -595,6 +564,11 @@ body {
 .metric-card.clickable:hover {
     border-color: var(--primary);
     transform: translateY(-2px);
+}
+
+.disabled-card {
+    opacity: 0.72;
+    cursor: not-allowed !important;
 }
 
 .card-icon {
@@ -1056,6 +1030,7 @@ body {
     align-items: center;
     border-bottom: 1px solid var(--glass-border);
     padding: 13px 0;
+    gap: 12px;
 }
 
 .info-row:last-child,
@@ -1108,10 +1083,48 @@ input:checked + .slider:before {
     transform: translateX(20px);
 }
 
-/* ACCOUNTS */
-.accounts-header p {
+/* ACCOUNTS + INVITE CODES */
+.accounts-header p,
+.muted-text {
     color: var(--text-muted);
     font-size: 0.9rem;
+}
+
+.invite-create-box {
+    display: grid;
+    grid-template-columns: 1fr;
+}
+
+.invite-form-card {
+    background: rgba(148, 163, 184, 0.05);
+    border: 1px solid var(--glass-border);
+    border-radius: 16px;
+    padding: 18px;
+}
+
+.invite-form-card h4 {
+    margin-bottom: 5px;
+}
+
+.invite-form-grid {
+    display: grid;
+    grid-template-columns: 1.5fr 1fr auto;
+    gap: 10px;
+    margin-top: 14px;
+}
+
+.invite-message {
+    margin-top: 12px;
+    min-height: 22px;
+    font-weight: 700;
+}
+
+.invite-message.success {
+    color: var(--success);
+}
+
+.invite-message.error {
+    color: var(--danger);
 }
 
 .approval-grid {
@@ -1166,12 +1179,37 @@ input:checked + .slider:before {
 .approval-user-card p,
 .approval-user-card small {
     color: var(--text-muted);
+    display: block;
+    margin-top: 4px;
 }
 
 .approval-actions {
     display: flex;
     gap: 8px;
     flex-wrap: wrap;
+}
+
+.role-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-weight: 800;
+    font-size: 0.78rem;
+}
+
+.role-admin {
+    color: #f87171;
+    background: rgba(239, 68, 68, 0.16);
+}
+
+.role-technician {
+    color: #22d3ee;
+    background: rgba(6, 182, 212, 0.16);
+}
+
+.role-customer {
+    color: #34d399;
+    background: rgba(16, 185, 129, 0.16);
 }
 
 /* RESPONSIVE */
@@ -1184,6 +1222,10 @@ input:checked + .slider:before {
 
     .approval-grid,
     .settings-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .invite-form-grid {
         grid-template-columns: 1fr;
     }
 }

@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RoomGuard - Giám Sát Phòng Thông Minh</title>
 
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link href="https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css" rel="stylesheet">
 
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
@@ -30,7 +30,7 @@
 
             <div class="auth-tabs">
                 <button type="button" class="auth-tab active" data-tab="login">Đăng nhập</button>
-                <button type="button" class="auth-tab" data-tab="register">Đăng ký</button>
+                <button type="button" class="auth-tab" data-tab="register">Đăng ký bằng mã</button>
             </div>
 
             <form id="login-form" class="auth-form active">
@@ -69,19 +69,15 @@
                     <input type="password" id="register-password-confirm" placeholder="Nhập lại mật khẩu" autocomplete="new-password" required>
                 </div>
 
-                <button type="submit" class="btn btn-primary btn-block">Gửi yêu cầu đăng ký</button>
-                <div id="register-error" class="error-msg"></div>
-                <p class="auth-note">Tài khoản mới cần quản trị viên duyệt trước khi truy cập dashboard.</p>
-            </form>
-
-            <div id="approval-waiting" class="approval-waiting">
-                <div class="approval-icon">
-                    <i class="bx bx-time-five"></i>
+                <div class="input-group">
+                    <i class="bx bx-key"></i>
+                    <input type="text" id="register-code" placeholder="Mã đăng ký do admin cấp" autocomplete="off" required>
                 </div>
-                <h3>Đang chờ quản trị viên duyệt</h3>
-                <p>Yêu cầu đăng ký của bạn đã được gửi. Sau khi admin duyệt, bạn mới có thể vào hệ thống.</p>
-                <button type="button" id="pending-logout-btn" class="btn btn-primary btn-block">Đăng xuất</button>
-            </div>
+
+                <button type="submit" class="btn btn-primary btn-block">Đăng ký</button>
+                <div id="register-error" class="error-msg"></div>
+                <p class="auth-note">Chỉ tài khoản có mã đăng ký hợp lệ do admin cấp mới được tạo tài khoản.</p>
+            </form>
         </div>
     </div>
 
@@ -135,7 +131,7 @@
                         <i class="bx bx-user-circle"></i>
                     </div>
                     <div class="user-detail">
-                        <h4 id="sidebar-user-name">Admin</h4>
+                        <h4 id="sidebar-user-name">Người dùng</h4>
                         <p><span class="dot"></span> Online</p>
                     </div>
                 </div>
@@ -229,7 +225,7 @@
                                 <div class="card-val-container">
                                     <h3 id="val-mode">--</h3>
                                 </div>
-                                <small>Nhấn đổi chế độ</small>
+                                <small id="mode-hint">Nhấn đổi chế độ</small>
                             </div>
                         </div>
                     </div>
@@ -397,6 +393,11 @@
                                 <span>Trạng thái</span>
                                 <strong id="setting-user-status">--</strong>
                             </div>
+
+                            <div class="info-row">
+                                <span>Mã đăng ký</span>
+                                <strong id="setting-user-code">--</strong>
+                            </div>
                         </div>
 
                         <div class="settings-card glass-panel">
@@ -421,35 +422,71 @@
                     <div class="accounts-box glass-panel">
                         <div class="section-header accounts-header">
                             <div>
-                                <h3>Quản lý tài khoản</h3>
-                                <p>Duyệt hoặc từ chối các tài khoản đăng ký mới</p>
+                                <h3>Quản lý tài khoản & mã đăng ký</h3>
+                                <p>Admin tạo mã đăng ký để phân quyền khách hàng và admin phụ.</p>
+                            </div>
+                        </div>
+
+                        <div class="invite-create-box mt-3">
+                            <div class="invite-form-card">
+                                <h4>Tạo mã đăng ký</h4>
+                                <p class="muted-text">Gửi mã này cho người được phép đăng ký tài khoản.</p>
+
+                                <div class="invite-form-grid">
+                                    <input type="text" id="invite-name" class="form-control" placeholder="Tên người nhận / username">
+
+                                    <select id="invite-role" class="form-control">
+                                        <option value="customer">Khách hàng</option>
+                                        <option value="admin">Admin phụ</option>
+                                    </select>
+
+                                    <button id="create-invite-btn" class="btn btn-primary">
+                                        <i class="bx bx-plus"></i>
+                                        Tạo mã
+                                    </button>
+                                </div>
+
+                                <div id="invite-create-message" class="invite-message"></div>
                             </div>
                         </div>
 
                         <div class="approval-grid mt-3">
                             <div class="approval-panel">
                                 <div class="approval-panel-header">
-                                    <h4>Chờ duyệt</h4>
-                                    <span id="pending-count">0</span>
+                                    <h4>Mã chưa sử dụng</h4>
+                                    <span id="unused-code-count">0</span>
                                 </div>
 
-                                <div id="pending-users-list" class="user-approval-list">
+                                <div id="unused-codes-list" class="user-approval-list">
                                     <div class="empty-state small">
-                                        <p>Chưa có tài khoản chờ duyệt.</p>
+                                        <p>Chưa có mã đăng ký nào.</p>
                                     </div>
                                 </div>
                             </div>
 
                             <div class="approval-panel">
                                 <div class="approval-panel-header">
-                                    <h4>Đã xử lý</h4>
-                                    <span id="processed-count">0</span>
+                                    <h4>Tài khoản đã đăng ký</h4>
+                                    <span id="registered-user-count">0</span>
                                 </div>
 
-                                <div id="processed-users-list" class="user-approval-list">
+                                <div id="registered-users-list" class="user-approval-list">
                                     <div class="empty-state small">
-                                        <p>Chưa có dữ liệu.</p>
+                                        <p>Chưa có tài khoản.</p>
                                     </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="approval-panel mt-3">
+                            <div class="approval-panel-header">
+                                <h4>Mã đã sử dụng</h4>
+                                <span id="used-code-count">0</span>
+                            </div>
+
+                            <div id="used-codes-list" class="user-approval-list">
+                                <div class="empty-state small">
+                                    <p>Chưa có mã nào được sử dụng.</p>
                                 </div>
                             </div>
                         </div>
