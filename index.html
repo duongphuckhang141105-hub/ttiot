@@ -19,7 +19,6 @@
 </head>
 
 <body>
-    <!-- LOGIN / REGISTER -->
     <div id="login-screen" class="view-section active">
         <div class="login-container glass-panel">
             <div class="login-header">
@@ -81,7 +80,6 @@
         </div>
     </div>
 
-    <!-- MAIN APP -->
     <div id="app-layout" class="view-section">
         <aside class="sidebar" id="sidebar">
             <div class="sidebar-logo">
@@ -169,7 +167,6 @@
             </nav>
 
             <div class="pages-container">
-                <!-- DASHBOARD -->
                 <section id="dashboard-page" class="page active">
                     <div class="status-banner warning" id="global-status">
                         <i class="bx bx-loader-alt bx-spin"></i>
@@ -222,7 +219,7 @@
                             </div>
                             <div class="card-info">
                                 <p class="card-label">Chế độ</p>
-                                <div class="card-val-container">
+                                <div class="card-val-container mode-value-container">
                                     <h3 id="val-mode">--</h3>
                                 </div>
                                 <small id="mode-hint">Nhấn đổi chế độ</small>
@@ -260,7 +257,6 @@
                     </div>
                 </section>
 
-                <!-- STATISTICS -->
                 <section id="statistics-page" class="page">
                     <div class="stat-box glass-panel">
                         <div class="section-header stat-header">
@@ -311,7 +307,6 @@
                     </div>
                 </section>
 
-                <!-- HISTORY -->
                 <section id="history-page" class="page">
                     <div class="history-box glass-panel">
                         <div class="section-header">
@@ -343,7 +338,6 @@
                     </div>
                 </section>
 
-                <!-- CHATBOT -->
                 <section id="chatbot-page" class="page">
                     <div class="chat-wrapper glass-panel">
                         <div class="chat-header">
@@ -373,7 +367,6 @@
                     </div>
                 </section>
 
-                <!-- SETTINGS -->
                 <section id="settings-page" class="page">
                     <div class="settings-grid">
                         <div class="settings-card glass-panel">
@@ -414,10 +407,36 @@
                                 </label>
                             </div>
                         </div>
+
+                        <div class="settings-card glass-panel user-temp-card">
+                            <h3>Ngưỡng nhiệt độ cá nhân</h3>
+                            <p class="muted-text">
+                                Mỗi tài khoản có thể tự đặt ngưỡng nhiệt độ cảnh báo riêng.
+                                Ngưỡng này chỉ ảnh hưởng cảnh báo trên giao diện web của tài khoản hiện tại.
+                            </p>
+
+                            <div class="personal-temp-form mt-3">
+                                <label for="personal-temp-max">Nhiệt độ cảnh báo tối đa (°C)</label>
+                                <input type="number" id="personal-temp-max" class="form-control" placeholder="Ví dụ: 30" min="0" max="100" step="0.1">
+
+                                <button id="save-personal-temp-btn" class="btn btn-primary mt-3">
+                                    <i class="bx bx-save"></i>
+                                    Lưu ngưỡng nhiệt độ
+                                </button>
+
+                                <div id="personal-temp-message" class="setting-message"></div>
+
+                                <div class="personal-temp-note mt-3">
+                                    <i class="bx bx-info-circle"></i>
+                                    <span>
+                                        Ví dụ: nếu đặt 32°C, hệ thống chỉ cảnh báo nhiệt độ trên web khi nhiệt độ phòng lớn hơn 32°C.
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
                 </section>
 
-                <!-- ACCOUNTS ADMIN PAGE -->
                 <section id="accounts-page" class="page">
                     <div class="accounts-box glass-panel">
                         <div class="section-header accounts-header">

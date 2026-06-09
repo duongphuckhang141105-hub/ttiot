@@ -1,9 +1,4 @@
-// app.js
-
 document.addEventListener("DOMContentLoaded", () => {
-    // ==========================================
-    // 0. FIREBASE CONFIG
-    // ==========================================
     const firebaseConfig = {
         apiKey: "AIzaSyASJa-sJZmUFpugU5fe_ybsafRIZqVEg-M",
         authDomain: "ttiot-44d9a.firebaseapp.com",
@@ -21,9 +16,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const db = firebase.database();
     const auth = firebase.auth();
 
-    // ==========================================
-    // 1. DOM ELEMENTS
-    // ==========================================
     const loginScreen = document.getElementById("login-screen");
     const appLayout = document.getElementById("app-layout");
 
@@ -77,9 +69,8 @@ document.addEventListener("DOMContentLoaded", () => {
     let inviteListenerStarted = false;
     let isRegistering = false;
 
-    // ==========================================
-    // 2. HELPER FUNCTIONS
-    // ==========================================
+    let personalTempMax = 30;
+
     function setMessage(element, message, success = false) {
         if (!element) return;
         element.textContent = message || "";
@@ -226,9 +217,6 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    // ==========================================
-    // 3. AUTH UI EVENTS
-    // ==========================================
     authTabs.forEach(tab => {
         tab.addEventListener("click", () => {
             switchAuthTab(tab.dataset.tab);
@@ -321,6 +309,7 @@ document.addEventListener("DOMContentLoaded", () => {
             registerForm.reset();
             setMessage(registerError, "Đăng ký thành công. Đang chuyển vào hệ thống...", true);
             showApp(userProfile);
+            loadPersonalTemperatureThreshold(uid);
         } catch (error) {
             isRegistering = false;
             setMessage(registerError, getFriendlyAuthError(error));
@@ -365,15 +354,13 @@ document.addEventListener("DOMContentLoaded", () => {
             }
 
             showApp(profile);
+            loadPersonalTemperatureThreshold(uid);
         } catch (error) {
             await auth.signOut();
             setMessage(loginError, "Không thể tải thông tin tài khoản.");
         }
     });
 
-    // ==========================================
-    // 4. ROUTING + SIDEBAR
-    // ==========================================
     navLinks.forEach(link => {
         link.addEventListener("click", () => {
             const targetId = link.dataset.target;
@@ -393,9 +380,6 @@ document.addEventListener("DOMContentLoaded", () => {
     openSidebarBtn.addEventListener("click", () => sidebar.classList.add("show"));
     closeSidebarBtn.addEventListener("click", () => sidebar.classList.remove("show"));
 
-    // ==========================================
-    // 5. CLOCK + THEME
-    // ==========================================
     function updateClock() {
         const now = new Date();
         document.getElementById("clock").textContent = now.toLocaleTimeString("vi-VN", {
@@ -430,9 +414,6 @@ document.addEventListener("DOMContentLoaded", () => {
     themeToggleBtn.addEventListener("click", toggleTheme);
     settingDarkModeSwitch.addEventListener("change", toggleTheme);
 
-    // ==========================================
-    // 6. FIREBASE CONNECTION STATUS
-    // ==========================================
     db.ref(".info/connected").on("value", (snapshot) => {
         if (snapshot.val() === true) {
             connStatus.innerHTML = `<span class="dot pulse"></span><span>Online</span>`;
@@ -441,9 +422,6 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    // ==========================================
-    // 7. CHART SETUP
-    // ==========================================
     Chart.defaults.color = "#94a3b8";
     Chart.defaults.font.family = "'Outfit', sans-serif";
 
@@ -573,22 +551,43 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    // ==========================================
-    // 8. DATA PROCESSING
-    // ==========================================
-    function checkWarningStatus(temp, hum, lux, mode) {
-        const tempBad = temp < 20 || temp > 30;
-        const humBad = hum < 35 || hum > 65;
+    function getWarningDetails(temp, hum, lux, mode) {
+        const warnings = [];
 
-        let luxBad = false;
+        const tempValue = Number(temp);
+        const humValue = Number(hum);
+        const luxValue = Number(lux);
+        const tempMax = Number(personalTempMax || 30);
 
-        if (mode === "hoc_tap") {
-            luxBad = lux < 300 || lux > 900;
-        } else {
-            luxBad = lux < 100 || lux > 250;
+        if (tempValue > tempMax) {
+            warnings.push(`Nhiệt độ cao: ${tempValue.toFixed(1)}°C > ${tempMax}°C`);
         }
 
-        return tempBad || humBad || luxBad;
+        if (humValue < 35) {
+            warnings.push(`Độ ẩm thấp: ${humValue.toFixed(0)}% < 35%`);
+        } else if (humValue > 65) {
+            warnings.push(`Độ ẩm cao: ${humValue.toFixed(0)}% > 65%`);
+        }
+
+        if (mode === "hoc_tap") {
+            if (luxValue < 300) {
+                warnings.push(`Ánh sáng thấp: ${luxValue.toFixed(0)} Lux < 300 Lux`);
+            } else if (luxValue > 900) {
+                warnings.push(`Ánh sáng cao: ${luxValue.toFixed(0)} Lux > 900 Lux`);
+            }
+        } else {
+            if (luxValue < 100) {
+                warnings.push(`Ánh sáng thấp: ${luxValue.toFixed(0)} Lux < 100 Lux`);
+            } else if (luxValue > 250) {
+                warnings.push(`Ánh sáng cao: ${luxValue.toFixed(0)} Lux > 250 Lux`);
+            }
+        }
+
+        return warnings;
+    }
+
+    function checkWarningStatus(temp, hum, lux, mode) {
+        return getWarningDetails(temp, hum, lux, mode).length > 0;
     }
 
     function parseHistoryData(historyData) {
@@ -764,9 +763,6 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("stat-count").textContent = count;
     }
 
-    // ==========================================
-    // 9. DASHBOARD + FIREBASE DATA
-    // ==========================================
     const dataRef = db.ref("roomguard/data");
     const historyRef = db.ref("roomguard/history");
 
@@ -787,16 +783,7 @@ document.addEventListener("DOMContentLoaded", () => {
         document.getElementById("val-lux").textContent = lux.toFixed(0);
         document.getElementById("val-mode").textContent = mode === "hoc_tap" ? "HỌC TẬP" : "NGHỈ NGƠI";
 
-        const isWarning = checkWarningStatus(temp, hum, lux, mode);
-        const statusEl = document.getElementById("global-status");
-
-        if (isWarning) {
-            statusEl.className = "status-banner danger";
-            statusEl.innerHTML = `<i class="bx bx-error"></i> CẢNH BÁO: Phát hiện thông số vượt ngưỡng!`;
-        } else {
-            statusEl.className = "status-banner good";
-            statusEl.innerHTML = `<i class="bx bx-check-shield"></i> HỆ THỐNG HOẠT ĐỘNG BÌNH THƯỜNG`;
-        }
+        refreshDashboardWarningByPersonalTemp();
     });
 
     const modeCard = document.getElementById("mode-card-container");
@@ -842,9 +829,6 @@ document.addEventListener("DOMContentLoaded", () => {
         );
     }
 
-    // ==========================================
-    // 10. STATISTICS PAGE
-    // ==========================================
     let currentStatMode = "realtime";
 
     const statButtons = document.querySelectorAll(".chart-actions button");
@@ -934,9 +918,6 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    // ==========================================
-    // 11. HISTORY PAGE
-    // ==========================================
     const historyContainer = document.getElementById("history-accordion-container");
     const filterDate = document.getElementById("history-date-filter");
     const filterStatus = document.getElementById("history-status-filter");
@@ -1085,9 +1066,6 @@ document.addEventListener("DOMContentLoaded", () => {
         `;
     }
 
-    // ==========================================
-    // 12. ADMIN ACCOUNT + INVITE CODE MANAGEMENT
-    // ==========================================
     function listenAdminData() {
         if (!isAdmin) return;
 
@@ -1274,9 +1252,140 @@ document.addEventListener("DOMContentLoaded", () => {
         `).join("");
     }
 
-    // ==========================================
-    // 13. CHATBOT GEMINI
-    // ==========================================
+    async function loadPersonalTemperatureThreshold(uid) {
+        if (!uid) return;
+
+        const tempInput = document.getElementById("personal-temp-max");
+        const msg = document.getElementById("personal-temp-message");
+
+        try {
+            const snap = await db.ref(`userSettings/${uid}/personalTempMax`).once("value");
+            const savedTempMax = snap.val();
+
+            if (savedTempMax !== null && savedTempMax !== undefined) {
+                personalTempMax = Number(savedTempMax);
+            } else {
+                personalTempMax = 30;
+                await db.ref(`userSettings/${uid}/personalTempMax`).set(personalTempMax);
+            }
+
+            if (tempInput) {
+                tempInput.value = personalTempMax;
+            }
+
+            refreshDashboardWarningByPersonalTemp();
+
+            if (msg) {
+                msg.textContent = "";
+                msg.className = "setting-message";
+            }
+        } catch (error) {
+            console.error("Lỗi tải ngưỡng nhiệt độ cá nhân:", error);
+
+            if (msg) {
+                msg.textContent = "Không thể tải ngưỡng nhiệt độ cá nhân.";
+                msg.className = "setting-message error";
+            }
+        }
+    }
+
+    function refreshDashboardWarningByPersonalTemp() {
+        if (!currentRoomState) return;
+
+        const temp = Number(currentRoomState.temperature ?? 0);
+        const hum = Number(currentRoomState.humidity ?? 0);
+        const lux = Number(currentRoomState.light ?? 0);
+        const mode = currentRoomState.mode ?? "nghi_ngoi";
+
+        const warnings = getWarningDetails(temp, hum, lux, mode);
+        const statusEl = document.getElementById("global-status");
+
+        if (!statusEl) return;
+
+        if (warnings.length > 0) {
+            statusEl.className = "status-banner danger";
+            statusEl.innerHTML = `
+                <i class="bx bx-error"></i>
+                <span>
+                    <strong>CẢNH BÁO:</strong> ${warnings.join(" | ")}
+                </span>
+            `;
+        } else {
+            statusEl.className = "status-banner good";
+            statusEl.innerHTML = `
+                <i class="bx bx-check-shield"></i>
+                <span>THÔNG SỐ PHÙ HỢP VỚI NGƯỠNG CÁ NHÂN</span>
+            `;
+        }
+    }
+
+    const savePersonalTempBtn = document.getElementById("save-personal-temp-btn");
+
+    if (savePersonalTempBtn) {
+        savePersonalTempBtn.addEventListener("click", async () => {
+            const tempInput = document.getElementById("personal-temp-max");
+            const msg = document.getElementById("personal-temp-message");
+
+            if (!currentUser) {
+                if (msg) {
+                    msg.textContent = "Bạn cần đăng nhập trước.";
+                    msg.className = "setting-message error";
+                }
+                return;
+            }
+
+            const newTempMax = Number(tempInput.value);
+
+            if (Number.isNaN(newTempMax) || newTempMax <= 0) {
+                if (msg) {
+                    msg.textContent = "Vui lòng nhập ngưỡng nhiệt độ hợp lệ.";
+                    msg.className = "setting-message error";
+                }
+                return;
+            }
+
+            if (newTempMax < 10 || newTempMax > 60) {
+                if (msg) {
+                    msg.textContent = "Ngưỡng nhiệt độ nên nằm trong khoảng 10°C đến 60°C.";
+                    msg.className = "setting-message error";
+                }
+                return;
+            }
+
+            try {
+                personalTempMax = newTempMax;
+
+                await db.ref(`userSettings/${currentUser.uid}/personalTempMax`).set(personalTempMax);
+
+                refreshDashboardWarningByPersonalTemp();
+
+                allHistoryRecords = allHistoryRecords.map(record => {
+                    const isWarning = checkWarningStatus(record.temperature, record.humidity, record.light, record.mode);
+                    return {
+                        ...record,
+                        isWarning,
+                        statusClass: isWarning ? "alert" : "normal",
+                        statusText: isWarning ? "Cảnh báo" : "Bình thường"
+                    };
+                });
+
+                renderHistoryByDate(allHistoryRecords);
+
+                if (msg) {
+                    msg.textContent = "Đã lưu ngưỡng nhiệt độ cá nhân.";
+                    msg.className = "setting-message success";
+                }
+            } catch (error) {
+                console.error("Lỗi lưu ngưỡng nhiệt độ cá nhân:", error);
+
+                if (msg) {
+                    msg.textContent = "Không thể lưu ngưỡng nhiệt độ cá nhân.";
+                    msg.className = "setting-message error";
+                }
+            }
+        });
+    }
+
     const chatInput = document.getElementById("chat-input");
     const chatSendBtn = document.getElementById("chat-send-btn");
     const chatMessages = document.getElementById("chat-messages");
@@ -1312,7 +1421,8 @@ document.addEventListener("DOMContentLoaded", () => {
                     `Nhiệt độ: ${Number(currentRoomState.temperature).toFixed(1)}°C, ` +
                     `Độ ẩm: ${Number(currentRoomState.humidity).toFixed(0)}%, ` +
                     `Ánh sáng: ${Number(currentRoomState.light).toFixed(0)} Lux, ` +
-                    `Chế độ: ${modeText}.`;
+                    `Chế độ: ${modeText}, ` +
+                    `Ngưỡng nhiệt độ cá nhân: ${personalTempMax}°C.`;
             }
 
             const prompt =

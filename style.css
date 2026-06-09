@@ -579,6 +579,7 @@ body {
     align-items: center;
     justify-content: center;
     font-size: 1.55rem;
+    flex-shrink: 0;
 }
 
 .temp-theme .card-icon {
@@ -623,6 +624,27 @@ body {
     color: var(--text-muted);
 }
 
+/* CHỈNH RIÊNG CHỮ HỌC TẬP / NGHỈ NGƠI */
+.mode-theme .card-info {
+    min-width: 0;
+    flex: 1;
+}
+
+.mode-theme .card-val-container {
+    width: 100%;
+    display: block;
+}
+
+.mode-value-container h3,
+#val-mode {
+    font-size: 1.35rem !important;
+    line-height: 1.2 !important;
+    white-space: nowrap !important;
+    word-break: keep-all !important;
+    letter-spacing: 0.2px;
+    font-weight: 800;
+}
+
 .overview-charts-grid {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -660,7 +682,8 @@ body {
     flex-wrap: wrap;
 }
 
-.section-header p {
+.section-header p,
+.muted-text {
     color: var(--text-muted);
     font-size: 0.9rem;
 }
@@ -1019,7 +1042,7 @@ body {
 /* SETTINGS */
 .settings-grid {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     gap: 18px;
 }
 
@@ -1083,7 +1106,55 @@ input:checked + .slider:before {
     transform: translateX(20px);
 }
 
-/* ACCOUNTS + INVITE CODES */
+/* PERSONAL TEMPERATURE */
+.user-temp-card {
+    min-height: 280px;
+}
+
+.personal-temp-form label {
+    display: block;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    margin-top: 12px;
+    margin-bottom: 6px;
+    font-weight: 700;
+}
+
+.setting-message {
+    margin-top: 12px;
+    min-height: 22px;
+    font-weight: 700;
+    font-size: 0.9rem;
+}
+
+.setting-message.success {
+    color: var(--success);
+}
+
+.setting-message.error {
+    color: var(--danger);
+}
+
+.personal-temp-note {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    background: rgba(59, 130, 246, 0.1);
+    border: 1px solid rgba(59, 130, 246, 0.22);
+    color: var(--text-muted);
+    border-radius: 12px;
+    padding: 12px;
+    line-height: 1.45;
+    font-size: 0.88rem;
+}
+
+.personal-temp-note i {
+    color: var(--primary);
+    font-size: 1.2rem;
+    margin-top: 1px;
+}
+
+/* ACCOUNTS */
 .accounts-header p,
 .muted-text {
     color: var(--text-muted);
@@ -1202,11 +1273,6 @@ input:checked + .slider:before {
     background: rgba(239, 68, 68, 0.16);
 }
 
-.role-technician {
-    color: #22d3ee;
-    background: rgba(6, 182, 212, 0.16);
-}
-
 .role-customer {
     color: #34d399;
     background: rgba(16, 185, 129, 0.16);
@@ -1260,7 +1326,8 @@ input:checked + .slider:before {
     .metrics-grid,
     .overview-charts-grid,
     .stat-summary-grid,
-    .mode-groups-container {
+    .mode-groups-container,
+    .settings-grid {
         grid-template-columns: 1fr;
     }
 
@@ -1280,5 +1347,11 @@ input:checked + .slider:before {
 
     .chat-wrapper {
         height: calc(100vh - 100px);
+    }
+
+    .mode-value-container h3,
+    #val-mode {
+        font-size: 1.2rem !important;
+        white-space: nowrap !important;
     }
 }
