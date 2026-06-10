@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+
 <html lang="vi" data-theme="dark">
 
 <head>
@@ -6,16 +7,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>RoomGuard - Giám Sát Phòng Thông Minh</title>
 
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <link href="https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css" rel="stylesheet">
+```
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link href="https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css" rel="stylesheet">
 
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
 
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-    <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css">
+```
+
 </head>
 
 <body>
@@ -27,495 +31,464 @@
                 <p>Giám Sát Phòng Thông Minh</p>
             </div>
 
-            <div class="auth-tabs">
-                <button type="button" class="auth-tab active" data-tab="login">Đăng nhập</button>
-                <button type="button" class="auth-tab" data-tab="register">Đăng ký bằng mã</button>
-            </div>
-
-            <form id="login-form" class="auth-form active">
-                <div class="input-group">
-                    <i class="bx bx-envelope"></i>
-                    <input type="email" id="login-email" placeholder="Email" autocomplete="email" required>
-                </div>
-
-                <div class="input-group">
-                    <i class="bx bx-lock-alt"></i>
-                    <input type="password" id="login-password" placeholder="Mật khẩu" autocomplete="current-password" required>
-                </div>
-
-                <button type="submit" class="btn btn-primary btn-block">Đăng nhập</button>
-                <div id="login-error" class="error-msg"></div>
-            </form>
-
-            <form id="register-form" class="auth-form">
-                <div class="input-group">
-                    <i class="bx bx-user"></i>
-                    <input type="text" id="register-name" placeholder="Họ và tên" autocomplete="name" required>
-                </div>
-
-                <div class="input-group">
-                    <i class="bx bx-envelope"></i>
-                    <input type="email" id="register-email" placeholder="Email đăng ký" autocomplete="email" required>
-                </div>
-
-                <div class="input-group">
-                    <i class="bx bx-lock-alt"></i>
-                    <input type="password" id="register-password" placeholder="Mật khẩu tối thiểu 6 ký tự" autocomplete="new-password" required>
-                </div>
-
-                <div class="input-group">
-                    <i class="bx bx-check-shield"></i>
-                    <input type="password" id="register-password-confirm" placeholder="Nhập lại mật khẩu" autocomplete="new-password" required>
-                </div>
-
-                <div class="input-group">
-                    <i class="bx bx-key"></i>
-                    <input type="text" id="register-code" placeholder="Mã đăng ký do admin cấp" autocomplete="off" required>
-                </div>
-
-                <button type="submit" class="btn btn-primary btn-block">Đăng ký</button>
-                <div id="register-error" class="error-msg"></div>
-                <p class="auth-note">Chỉ tài khoản có mã đăng ký hợp lệ do admin cấp mới được tạo tài khoản.</p>
-            </form>
+```
+        <div class="auth-tabs">
+            <button type="button" class="auth-tab active" data-tab="login">Đăng nhập</button>
+            <button type="button" class="auth-tab" data-tab="register">Đăng ký bằng mã</button>
         </div>
-    </div>
 
-    <div id="app-layout" class="view-section">
-        <aside class="sidebar" id="sidebar">
-            <div class="sidebar-logo">
-                <img src="hcmute.jpg" alt="Logo HCM-UTE">
-                <div class="brand-text">
-                    <span class="brand-title">RoomGuard</span>
-                    <span class="brand-subtitle">Giám Sát Thông Minh</span>
-                </div>
-                <i class="bx bx-x menu-close-btn" id="close-sidebar"></i>
+        <form id="login-form" class="auth-form active">
+            <div class="input-group">
+                <i class="bx bx-envelope"></i>
+                <input type="email" id="login-email" placeholder="Email" autocomplete="email" required>
             </div>
 
-            <ul class="nav-links">
-                <li class="active" data-target="dashboard-page">
-                    <i class="bx bx-grid-alt"></i>
-                    <span>Tổng Quan</span>
-                </li>
+            <div class="input-group">
+                <i class="bx bx-lock-alt"></i>
+                <input type="password" id="login-password" placeholder="Mật khẩu" autocomplete="current-password" required>
+            </div>
 
-                <li data-target="statistics-page">
-                    <i class="bx bx-bar-chart-alt-2"></i>
-                    <span>Thống Kê</span>
-                </li>
+            <button type="submit" class="btn btn-primary btn-block">Đăng nhập</button>
+            <div id="login-error" class="error-msg"></div>
+        </form>
 
-                <li data-target="history-page">
-                    <i class="bx bx-history"></i>
-                    <span>Lịch Sử</span>
-                </li>
+        <form id="register-form" class="auth-form">
+            <div class="input-group">
+                <i class="bx bx-user"></i>
+                <input type="text" id="register-name" placeholder="Họ và tên" autocomplete="name" required>
+            </div>
 
-                <li data-target="chatbot-page">
-                    <i class="bx bx-bot"></i>
-                    <span>Chatbot</span>
-                </li>
+            <div class="input-group">
+                <i class="bx bx-envelope"></i>
+                <input type="email" id="register-email" placeholder="Email đăng ký" autocomplete="email" required>
+            </div>
 
-                <li data-target="settings-page">
-                    <i class="bx bx-cog"></i>
-                    <span>Cài Đặt</span>
-                </li>
+            <div class="input-group">
+                <i class="bx bx-lock-alt"></i>
+                <input type="password" id="register-password" placeholder="Mật khẩu tối thiểu 6 ký tự" autocomplete="new-password" required>
+            </div>
 
-                <li data-target="accounts-page" class="admin-only">
-                    <i class="bx bx-user-check"></i>
-                    <span>Tài Khoản</span>
-                </li>
-            </ul>
+            <div class="input-group">
+                <i class="bx bx-check-shield"></i>
+                <input type="password" id="register-password-confirm" placeholder="Nhập lại mật khẩu" autocomplete="new-password" required>
+            </div>
 
-            <div class="sidebar-footer">
-                <div class="user-info">
-                    <div class="avatar">
-                        <i class="bx bx-user-circle"></i>
-                    </div>
-                    <div class="user-detail">
-                        <h4 id="sidebar-user-name">Người dùng</h4>
-                        <p><span class="dot"></span> Online</p>
-                    </div>
+            <div class="input-group">
+                <i class="bx bx-key"></i>
+                <input type="text" id="register-code" placeholder="Mã đăng ký do admin cấp" autocomplete="off" required>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-block">Đăng ký</button>
+            <div id="register-error" class="error-msg"></div>
+            <p class="auth-note">Chỉ tài khoản có mã đăng ký hợp lệ do admin cấp mới được tạo tài khoản.</p>
+        </form>
+    </div>
+</div>
+
+<div id="app-layout" class="view-section">
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-logo">
+            <img src="hcmute.jpg" alt="Logo HCM-UTE">
+            <div class="brand-text">
+                <span class="brand-title">RoomGuard</span>
+                <span class="brand-subtitle">Giám Sát Thông Minh</span>
+            </div>
+            <i class="bx bx-x menu-close-btn" id="close-sidebar"></i>
+        </div>
+
+        <ul class="nav-links">
+            <li class="active" data-target="dashboard-page">
+                <i class="bx bx-grid-alt"></i>
+                <span>Tổng Quan</span>
+            </li>
+
+            <li data-target="statistics-page">
+                <i class="bx bx-bar-chart-alt-2"></i>
+                <span>Thống Kê</span>
+            </li>
+
+            <li data-target="history-page">
+                <i class="bx bx-history"></i>
+                <span>Lịch Sử</span>
+            </li>
+
+            <li data-target="settings-page">
+                <i class="bx bx-cog"></i>
+                <span>Cài Đặt</span>
+            </li>
+
+            <li data-target="accounts-page" class="admin-only">
+                <i class="bx bx-user-check"></i>
+                <span>Tài Khoản</span>
+            </li>
+        </ul>
+
+        <div class="sidebar-footer">
+            <div class="user-info">
+                <div class="avatar">
+                    <i class="bx bx-user-circle"></i>
+                </div>
+                <div class="user-detail">
+                    <h4 id="sidebar-user-name">Người dùng</h4>
+                    <p><span class="dot"></span> Online</p>
+                </div>
+            </div>
+
+            <button id="logout-btn" class="btn btn-icon" title="Đăng xuất">
+                <i class="bx bx-log-out"></i>
+            </button>
+        </div>
+    </aside>
+
+    <main class="main-content">
+        <nav class="navbar glass-panel">
+            <div class="nav-left">
+                <i class="bx bx-menu menu-btn" id="open-sidebar"></i>
+                <h2 id="page-title">Tổng Quan</h2>
+            </div>
+
+            <div class="nav-right">
+                <div class="connection-status" id="conn-status">
+                    <span class="dot pulse"></span>
+                    <span>Đang kết nối...</span>
                 </div>
 
-                <button id="logout-btn" class="btn btn-icon" title="Đăng xuất">
-                    <i class="bx bx-log-out"></i>
+                <div class="time-display" id="clock">00:00:00</div>
+
+                <button id="theme-toggle" class="btn btn-icon">
+                    <i class="bx bx-sun"></i>
                 </button>
+
+                <div class="notification">
+                    <i class="bx bx-bell"></i>
+                    <span class="badge" id="notif-count">0</span>
+                </div>
             </div>
-        </aside>
+        </nav>
 
-        <main class="main-content">
-            <nav class="navbar glass-panel">
-                <div class="nav-left">
-                    <i class="bx bx-menu menu-btn" id="open-sidebar"></i>
-                    <h2 id="page-title">Tổng Quan</h2>
+        <div class="pages-container">
+            <section id="dashboard-page" class="page active">
+                <div class="status-banner warning" id="global-status">
+                    <i class="bx bx-loader-alt bx-spin"></i>
+                    ĐANG TẢI DỮ LIỆU...
                 </div>
 
-                <div class="nav-right">
-                    <div class="connection-status" id="conn-status">
-                        <span class="dot pulse"></span>
-                        <span>Đang kết nối...</span>
+                <div class="metrics-grid">
+                    <div class="metric-card glass-panel temp-theme">
+                        <div class="card-icon">
+                            <i class="bx bxs-thermometer"></i>
+                        </div>
+                        <div class="card-info">
+                            <p class="card-label">Nhiệt độ</p>
+                            <div class="card-val-container">
+                                <h3 id="val-temp">--</h3>
+                                <span>°C</span>
+                            </div>
+                        </div>
                     </div>
 
-                    <div class="time-display" id="clock">00:00:00</div>
+                    <div class="metric-card glass-panel hum-theme">
+                        <div class="card-icon">
+                            <i class="bx bx-water"></i>
+                        </div>
+                        <div class="card-info">
+                            <p class="card-label">Độ ẩm</p>
+                            <div class="card-val-container">
+                                <h3 id="val-hum">--</h3>
+                                <span>%</span>
+                            </div>
+                        </div>
+                    </div>
 
-                    <button id="theme-toggle" class="btn btn-icon">
-                        <i class="bx bx-sun"></i>
-                    </button>
+                    <div class="metric-card glass-panel lux-theme">
+                        <div class="card-icon">
+                            <i class="bx bxs-bulb"></i>
+                        </div>
+                        <div class="card-info">
+                            <p class="card-label">Ánh sáng</p>
+                            <div class="card-val-container">
+                                <h3 id="val-lux">--</h3>
+                                <span>Lux</span>
+                            </div>
+                        </div>
+                    </div>
 
-                    <div class="notification">
-                        <i class="bx bx-bell"></i>
-                        <span class="badge" id="notif-count">0</span>
+                    <div class="metric-card glass-panel mode-theme clickable" id="mode-card-container">
+                        <div class="card-icon">
+                            <i class="bx bx-slider-alt"></i>
+                        </div>
+                        <div class="card-info">
+                            <p class="card-label">Chế độ</p>
+                            <div class="card-val-container mode-value-container">
+                                <h3 id="val-mode">--</h3>
+                            </div>
+                            <small id="mode-hint">Nhấn đổi chế độ</small>
+                        </div>
                     </div>
                 </div>
-            </nav>
 
-            <div class="pages-container">
-                <section id="dashboard-page" class="page active">
-                    <div class="status-banner warning" id="global-status">
-                        <i class="bx bx-loader-alt bx-spin"></i>
-                        ĐANG TẢI DỮ LIỆU...
+                <div class="overview-charts-grid mt-4">
+                    <div class="chart-card glass-panel">
+                        <div class="chart-header">
+                            <h3>Xu hướng Nhiệt độ</h3>
+                        </div>
+                        <div class="chart-container-sm">
+                            <canvas id="temperatureChart"></canvas>
+                        </div>
                     </div>
 
-                    <div class="metrics-grid">
-                        <div class="metric-card glass-panel temp-theme">
-                            <div class="card-icon">
-                                <i class="bx bxs-thermometer"></i>
-                            </div>
-                            <div class="card-info">
-                                <p class="card-label">Nhiệt độ</p>
-                                <div class="card-val-container">
-                                    <h3 id="val-temp">--</h3>
-                                    <span>°C</span>
-                                </div>
-                            </div>
+                    <div class="chart-card glass-panel">
+                        <div class="chart-header">
+                            <h3>Xu hướng Độ ẩm</h3>
+                        </div>
+                        <div class="chart-container-sm">
+                            <canvas id="humidityChart"></canvas>
+                        </div>
+                    </div>
+
+                    <div class="chart-card glass-panel">
+                        <div class="chart-header">
+                            <h3>Xu hướng Ánh sáng</h3>
+                        </div>
+                        <div class="chart-container-sm">
+                            <canvas id="lightChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section id="statistics-page" class="page">
+                <div class="stat-box glass-panel">
+                    <div class="section-header stat-header">
+                        <div>
+                            <h3>Phân tích dữ liệu</h3>
+                            <p>Dữ liệu cảm biến theo thời gian</p>
                         </div>
 
-                        <div class="metric-card glass-panel hum-theme">
-                            <div class="card-icon">
-                                <i class="bx bx-water"></i>
+                        <div class="stat-controls">
+                            <div class="chart-actions">
+                                <button class="btn btn-sm active" data-mode="realtime">Realtime</button>
+                                <button class="btn btn-sm" data-mode="daily">Theo ngày</button>
+                                <button class="btn btn-sm" data-mode="monthly">Theo tháng</button>
                             </div>
-                            <div class="card-info">
-                                <p class="card-label">Độ ẩm</p>
-                                <div class="card-val-container">
-                                    <h3 id="val-hum">--</h3>
-                                    <span>%</span>
-                                </div>
-                            </div>
-                        </div>
 
-                        <div class="metric-card glass-panel lux-theme">
-                            <div class="card-icon">
-                                <i class="bx bxs-bulb"></i>
-                            </div>
-                            <div class="card-info">
-                                <p class="card-label">Ánh sáng</p>
-                                <div class="card-val-container">
-                                    <h3 id="val-lux">--</h3>
-                                    <span>Lux</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="metric-card glass-panel mode-theme clickable" id="mode-card-container">
-                            <div class="card-icon">
-                                <i class="bx bx-slider-alt"></i>
-                            </div>
-                            <div class="card-info">
-                                <p class="card-label">Chế độ</p>
-                                <div class="card-val-container mode-value-container">
-                                    <h3 id="val-mode">--</h3>
-                                </div>
-                                <small id="mode-hint">Nhấn đổi chế độ</small>
+                            <div class="date-pickers" id="date-pickers">
+                                <input type="date" id="stat-date" class="form-control stat-input">
+                                <input type="month" id="stat-month" class="form-control stat-input">
                             </div>
                         </div>
                     </div>
 
-                    <div class="overview-charts-grid mt-4">
-                        <div class="chart-card glass-panel">
-                            <div class="chart-header">
-                                <h3>Xu hướng Nhiệt độ</h3>
-                            </div>
-                            <div class="chart-container-sm">
-                                <canvas id="temperatureChart"></canvas>
-                            </div>
+                    <div class="chart-container-lg mt-3">
+                        <canvas id="mainChart"></canvas>
+                    </div>
+
+                    <div class="stat-summary-grid mt-4">
+                        <div class="stat-summary-card">
+                            <h4>Nhiệt độ TB</h4>
+                            <div class="stat-val" id="stat-avg-temp">-- °C</div>
                         </div>
 
-                        <div class="chart-card glass-panel">
-                            <div class="chart-header">
-                                <h3>Xu hướng Độ ẩm</h3>
-                            </div>
-                            <div class="chart-container-sm">
-                                <canvas id="humidityChart"></canvas>
-                            </div>
+                        <div class="stat-summary-card">
+                            <h4>Độ ẩm TB</h4>
+                            <div class="stat-val" id="stat-avg-hum">-- %</div>
                         </div>
 
-                        <div class="chart-card glass-panel">
-                            <div class="chart-header">
-                                <h3>Xu hướng Ánh sáng</h3>
-                            </div>
-                            <div class="chart-container-sm">
-                                <canvas id="lightChart"></canvas>
-                            </div>
+                        <div class="stat-summary-card">
+                            <h4>Ánh sáng TB</h4>
+                            <div class="stat-val" id="stat-avg-lux">-- Lux</div>
+                        </div>
+
+                        <div class="stat-summary-card">
+                            <h4>Bản ghi</h4>
+                            <div class="stat-val" id="stat-count">0</div>
                         </div>
                     </div>
-                </section>
+                </div>
+            </section>
 
-                <section id="statistics-page" class="page">
-                    <div class="stat-box glass-panel">
-                        <div class="section-header stat-header">
+            <section id="history-page" class="page">
+                <div class="history-box glass-panel">
+                    <div class="section-header">
+                        <h3>Lịch sử Cảnh báo & Hoạt động</h3>
+
+                        <div class="history-filters">
+                            <input type="date" id="history-date-filter" class="form-control">
+
+                            <div id="history-mode-filter" class="mode-tabs">
+                                <button class="btn-tab active" data-mode="all">TẤT CẢ</button>
+                                <button class="btn-tab" data-mode="hoc_tap">HỌC TẬP</button>
+                                <button class="btn-tab" data-mode="nghi_ngoi">NGHỈ NGƠI</button>
+                            </div>
+
+                            <select id="history-status-filter" class="form-control">
+                                <option value="all">Tất cả trạng thái</option>
+                                <option value="normal">Bình thường</option>
+                                <option value="warning">Cảnh báo</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div id="history-accordion-container" class="history-list mt-3">
+                        <div class="empty-state">
+                            <i class="bx bx-folder-open"></i>
+                            <p>Đang tải dữ liệu lịch sử...</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section id="settings-page" class="page">
+                <div class="settings-grid">
+                    <div class="settings-card glass-panel">
+                        <h3>Tài khoản</h3>
+
+                        <div class="info-row mt-3">
+                            <span>Email</span>
+                            <strong id="setting-user-email">--</strong>
+                        </div>
+
+                        <div class="info-row">
+                            <span>Vai trò</span>
+                            <strong id="setting-user-role">--</strong>
+                        </div>
+
+                        <div class="info-row">
+                            <span>Trạng thái</span>
+                            <strong id="setting-user-status">--</strong>
+                        </div>
+
+                        <div class="info-row">
+                            <span>Mã đăng ký</span>
+                            <strong id="setting-user-code">--</strong>
+                        </div>
+                    </div>
+
+                    <div class="settings-card glass-panel">
+                        <h3>Hệ thống</h3>
+
+                        <div class="setting-item mt-3">
                             <div>
-                                <h3>Phân tích dữ liệu</h3>
-                                <p>Dữ liệu cảm biến theo thời gian</p>
+                                <h4>Giao diện tối</h4>
+                                <p>Chuyển đổi Dark / Light</p>
                             </div>
-
-                            <div class="stat-controls">
-                                <div class="chart-actions">
-                                    <button class="btn btn-sm active" data-mode="realtime">Realtime</button>
-                                    <button class="btn btn-sm" data-mode="daily">Theo ngày</button>
-                                    <button class="btn btn-sm" data-mode="monthly">Theo tháng</button>
-                                </div>
-
-                                <div class="date-pickers" id="date-pickers">
-                                    <input type="date" id="stat-date" class="form-control stat-input">
-                                    <input type="month" id="stat-month" class="form-control stat-input">
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="chart-container-lg mt-3">
-                            <canvas id="mainChart"></canvas>
-                        </div>
-
-                        <div class="stat-summary-grid mt-4">
-                            <div class="stat-summary-card">
-                                <h4>Nhiệt độ TB</h4>
-                                <div class="stat-val" id="stat-avg-temp">-- °C</div>
-                            </div>
-
-                            <div class="stat-summary-card">
-                                <h4>Độ ẩm TB</h4>
-                                <div class="stat-val" id="stat-avg-hum">-- %</div>
-                            </div>
-
-                            <div class="stat-summary-card">
-                                <h4>Ánh sáng TB</h4>
-                                <div class="stat-val" id="stat-avg-lux">-- Lux</div>
-                            </div>
-
-                            <div class="stat-summary-card">
-                                <h4>Bản ghi</h4>
-                                <div class="stat-val" id="stat-count">0</div>
-                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="setting-darkmode" checked>
+                                <span class="slider round"></span>
+                            </label>
                         </div>
                     </div>
-                </section>
 
-                <section id="history-page" class="page">
-                    <div class="history-box glass-panel">
-                        <div class="section-header">
-                            <h3>Lịch sử Cảnh báo & Hoạt động</h3>
+                    <div class="settings-card glass-panel user-temp-card">
+                        <h3>Ngưỡng nhiệt độ cá nhân</h3>
+                        <p class="muted-text">
+                            Mỗi tài khoản có thể tự đặt ngưỡng nhiệt độ cảnh báo riêng.
+                            Ngưỡng này chỉ ảnh hưởng cảnh báo trên giao diện web của tài khoản hiện tại.
+                        </p>
 
-                            <div class="history-filters">
-                                <input type="date" id="history-date-filter" class="form-control">
+                        <div class="personal-temp-form mt-3">
+                            <label for="personal-temp-max">Nhiệt độ cảnh báo tối đa (°C)</label>
+                            <input type="number" id="personal-temp-max" class="form-control" placeholder="Ví dụ: 30" min="0" max="100" step="0.1">
 
-                                <div id="history-mode-filter" class="mode-tabs">
-                                    <button class="btn-tab active" data-mode="all">TẤT CẢ</button>
-                                    <button class="btn-tab" data-mode="hoc_tap">HỌC TẬP</button>
-                                    <button class="btn-tab" data-mode="nghi_ngoi">NGHỈ NGƠI</button>
-                                </div>
-
-                                <select id="history-status-filter" class="form-control">
-                                    <option value="all">Tất cả trạng thái</option>
-                                    <option value="normal">Bình thường</option>
-                                    <option value="warning">Cảnh báo</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <div id="history-accordion-container" class="history-list mt-3">
-                            <div class="empty-state">
-                                <i class="bx bx-folder-open"></i>
-                                <p>Đang tải dữ liệu lịch sử...</p>
-                            </div>
-                        </div>
-                    </div>
-                </section>
-
-                <section id="chatbot-page" class="page">
-                    <div class="chat-wrapper glass-panel">
-                        <div class="chat-header">
-                            <div class="chat-avatar">
-                                <i class="bx bx-bot"></i>
-                            </div>
-                            <div class="chat-title">
-                                <h3>RoomGuard AI Assistant</h3>
-                                <p>Sẵn sàng giải đáp tình trạng phòng</p>
-                            </div>
-                        </div>
-
-                        <div class="chat-messages" id="chat-messages">
-                            <div class="message bot-msg">
-                                <div class="msg-bubble">
-                                    Xin chào! Mình là trợ lí AI. Bạn cần thông tin gì về môi trường phòng hiện tại?
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="chat-input-area">
-                            <input type="text" id="chat-input" placeholder="Nhập câu hỏi..." autocomplete="off">
-                            <button id="chat-send-btn" class="btn btn-primary btn-icon">
-                                <i class="bx bx-send"></i>
+                            <button id="save-personal-temp-btn" class="btn btn-primary mt-3">
+                                <i class="bx bx-save"></i>
+                                Lưu ngưỡng nhiệt độ
                             </button>
+
+                            <div id="personal-temp-message" class="setting-message"></div>
+
+                            <div class="personal-temp-note mt-3">
+                                <i class="bx bx-info-circle"></i>
+                                <span>
+                                    Ví dụ: nếu đặt 32°C, hệ thống chỉ cảnh báo nhiệt độ trên web khi nhiệt độ phòng lớn hơn 32°C.
+                                </span>
+                            </div>
                         </div>
                     </div>
-                </section>
+                </div>
+            </section>
 
-                <section id="settings-page" class="page">
-                    <div class="settings-grid">
-                        <div class="settings-card glass-panel">
-                            <h3>Tài khoản</h3>
-
-                            <div class="info-row mt-3">
-                                <span>Email</span>
-                                <strong id="setting-user-email">--</strong>
-                            </div>
-
-                            <div class="info-row">
-                                <span>Vai trò</span>
-                                <strong id="setting-user-role">--</strong>
-                            </div>
-
-                            <div class="info-row">
-                                <span>Trạng thái</span>
-                                <strong id="setting-user-status">--</strong>
-                            </div>
-
-                            <div class="info-row">
-                                <span>Mã đăng ký</span>
-                                <strong id="setting-user-code">--</strong>
-                            </div>
+            <section id="accounts-page" class="page">
+                <div class="accounts-box glass-panel">
+                    <div class="section-header accounts-header">
+                        <div>
+                            <h3>Quản lý tài khoản & mã đăng ký</h3>
+                            <p>Admin tạo mã đăng ký để phân quyền khách hàng và admin phụ.</p>
                         </div>
+                    </div>
 
-                        <div class="settings-card glass-panel">
-                            <h3>Hệ thống</h3>
+                    <div class="invite-create-box mt-3">
+                        <div class="invite-form-card">
+                            <h4>Tạo mã đăng ký</h4>
+                            <p class="muted-text">Gửi mã này cho người được phép đăng ký tài khoản.</p>
 
-                            <div class="setting-item mt-3">
-                                <div>
-                                    <h4>Giao diện tối</h4>
-                                    <p>Chuyển đổi Dark / Light</p>
-                                </div>
-                                <label class="switch">
-                                    <input type="checkbox" id="setting-darkmode" checked>
-                                    <span class="slider round"></span>
-                                </label>
-                            </div>
-                        </div>
+                            <div class="invite-form-grid">
+                                <input type="text" id="invite-name" class="form-control" placeholder="Tên người nhận / username">
 
-                        <div class="settings-card glass-panel user-temp-card">
-                            <h3>Ngưỡng nhiệt độ cá nhân</h3>
-                            <p class="muted-text">
-                                Mỗi tài khoản có thể tự đặt ngưỡng nhiệt độ cảnh báo riêng.
-                                Ngưỡng này chỉ ảnh hưởng cảnh báo trên giao diện web của tài khoản hiện tại.
-                            </p>
+                                <select id="invite-role" class="form-control">
+                                    <option value="customer">Khách hàng</option>
+                                    <option value="admin">Admin phụ</option>
+                                </select>
 
-                            <div class="personal-temp-form mt-3">
-                                <label for="personal-temp-max">Nhiệt độ cảnh báo tối đa (°C)</label>
-                                <input type="number" id="personal-temp-max" class="form-control" placeholder="Ví dụ: 30" min="0" max="100" step="0.1">
-
-                                <button id="save-personal-temp-btn" class="btn btn-primary mt-3">
-                                    <i class="bx bx-save"></i>
-                                    Lưu ngưỡng nhiệt độ
+                                <button id="create-invite-btn" class="btn btn-primary">
+                                    <i class="bx bx-plus"></i>
+                                    Tạo mã
                                 </button>
-
-                                <div id="personal-temp-message" class="setting-message"></div>
-
-                                <div class="personal-temp-note mt-3">
-                                    <i class="bx bx-info-circle"></i>
-                                    <span>
-                                        Ví dụ: nếu đặt 32°C, hệ thống chỉ cảnh báo nhiệt độ trên web khi nhiệt độ phòng lớn hơn 32°C.
-                                    </span>
-                                </div>
                             </div>
+
+                            <div id="invite-create-message" class="invite-message"></div>
                         </div>
                     </div>
-                </section>
 
-                <section id="accounts-page" class="page">
-                    <div class="accounts-box glass-panel">
-                        <div class="section-header accounts-header">
-                            <div>
-                                <h3>Quản lý tài khoản & mã đăng ký</h3>
-                                <p>Admin tạo mã đăng ký để phân quyền khách hàng và admin phụ.</p>
-                            </div>
-                        </div>
-
-                        <div class="invite-create-box mt-3">
-                            <div class="invite-form-card">
-                                <h4>Tạo mã đăng ký</h4>
-                                <p class="muted-text">Gửi mã này cho người được phép đăng ký tài khoản.</p>
-
-                                <div class="invite-form-grid">
-                                    <input type="text" id="invite-name" class="form-control" placeholder="Tên người nhận / username">
-
-                                    <select id="invite-role" class="form-control">
-                                        <option value="customer">Khách hàng</option>
-                                        <option value="admin">Admin phụ</option>
-                                    </select>
-
-                                    <button id="create-invite-btn" class="btn btn-primary">
-                                        <i class="bx bx-plus"></i>
-                                        Tạo mã
-                                    </button>
-                                </div>
-
-                                <div id="invite-create-message" class="invite-message"></div>
-                            </div>
-                        </div>
-
-                        <div class="approval-grid mt-3">
-                            <div class="approval-panel">
-                                <div class="approval-panel-header">
-                                    <h4>Mã chưa sử dụng</h4>
-                                    <span id="unused-code-count">0</span>
-                                </div>
-
-                                <div id="unused-codes-list" class="user-approval-list">
-                                    <div class="empty-state small">
-                                        <p>Chưa có mã đăng ký nào.</p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="approval-panel">
-                                <div class="approval-panel-header">
-                                    <h4>Tài khoản đã đăng ký</h4>
-                                    <span id="registered-user-count">0</span>
-                                </div>
-
-                                <div id="registered-users-list" class="user-approval-list">
-                                    <div class="empty-state small">
-                                        <p>Chưa có tài khoản.</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="approval-panel mt-3">
+                    <div class="approval-grid mt-3">
+                        <div class="approval-panel">
                             <div class="approval-panel-header">
-                                <h4>Mã đã sử dụng</h4>
-                                <span id="used-code-count">0</span>
+                                <h4>Mã chưa sử dụng</h4>
+                                <span id="unused-code-count">0</span>
                             </div>
 
-                            <div id="used-codes-list" class="user-approval-list">
+                            <div id="unused-codes-list" class="user-approval-list">
                                 <div class="empty-state small">
-                                    <p>Chưa có mã nào được sử dụng.</p>
+                                    <p>Chưa có mã đăng ký nào.</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="approval-panel">
+                            <div class="approval-panel-header">
+                                <h4>Tài khoản đã đăng ký</h4>
+                                <span id="registered-user-count">0</span>
+                            </div>
+
+                            <div id="registered-users-list" class="user-approval-list">
+                                <div class="empty-state small">
+                                    <p>Chưa có tài khoản.</p>
                                 </div>
                             </div>
                         </div>
                     </div>
-                </section>
-            </div>
-        </main>
-    </div>
 
-    <script src="app.js"></script>
+                    <div class="approval-panel mt-3">
+                        <div class="approval-panel-header">
+                            <h4>Mã đã sử dụng</h4>
+                            <span id="used-code-count">0</span>
+                        </div>
+
+                        <div id="used-codes-list" class="user-approval-list">
+                            <div class="empty-state small">
+                                <p>Chưa có mã nào được sử dụng.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </div>
+    </main>
+</div>
+
+<script src="app.js"></script>
+```
+
 </body>
 
 </html>
