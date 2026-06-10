@@ -71,6 +71,291 @@ document.addEventListener("DOMContentLoaded", () => {
 
     let personalTempMax = 30;
 
+    /* =========================
+       ĐO TIÊU CHÍ ĐÁNH GIÁ IOT
+       - Response Time: web ghi lệnh lên Firebase
+       - RTT: web gửi lệnh -> ESP32 ACK -> web nhận ACK
+       - Latency: ESP32 gửi data có espSentAt -> web nhận data
+       - Packet Loss / PDR / Reliability / Throughput: dựa vào seq
+       Kết quả lưu ở Firebase: roomguard/performance
+    ========================= */
+
+    const commandRef = db.ref("roomguard/command");
+    const ackRef = db.ref("roomguard/ack");
+    const performanceRef = db.ref("roomguard/performance");
+
+    let performanceCommandSeq = Number(localStorage.getItem("roomguard_command_seq") || "0");
+    let pendingCommands = {};
+    let lastProcessedAckSeq = null;
+
+    let receivedSeqSet = new Set();
+    let minDataSeq = null;
+    let maxDataSeq = null;
+    let firstPacketReceiveAt = null;
+    let totalReceivedBytes = 0;
+    let lastLoggedDataSeq = null;
+
+    let responseTimeSamples = [];
+    let rttSamples = [];
+    let latencySamples = [];
+
+    function nextCommandSeq() {
+        performanceCommandSeq += 1;
+        localStorage.setItem("roomguard_command_seq", String(performanceCommandSeq));
+        return performanceCommandSeq;
+    }
+
+    function normalizeTimestampToMillis(value) {
+        const timestamp = Number(value);
+
+        if (!Number.isFinite(timestamp) || timestamp <= 0) {
+            return null;
+        }
+
+        return timestamp < 1000000000000 ? timestamp * 1000 : timestamp;
+    }
+
+    function roundNumber(value, digits = 2) {
+        if (!Number.isFinite(Number(value))) return null;
+        return Number(Number(value).toFixed(digits));
+    }
+
+    function getAverage(values) {
+        if (!values.length) return 0;
+        return values.reduce((sum, value) => sum + Number(value), 0) / values.length;
+    }
+
+    function getStd(values) {
+        if (values.length <= 1) return 0;
+
+        const avg = getAverage(values);
+        const variance = values.reduce((sum, value) => {
+            return sum + Math.pow(Number(value) - avg, 2);
+        }, 0) / (values.length - 1);
+
+        return Math.sqrt(variance);
+    }
+
+    function pushLimitedSample(arr, value, limit = 200) {
+        arr.push(Number(value));
+
+        if (arr.length > limit) {
+            arr.shift();
+        }
+    }
+
+    function savePerformanceLog(type, payload) {
+        return performanceRef.child(type).push({
+            ...payload,
+            createdAt: firebase.database.ServerValue.TIMESTAMP
+        }).catch(error => {
+            console.warn(`Không thể lưu performance/${type}:`, error);
+        });
+    }
+
+    function updatePerformanceSummary(type, samples) {
+        const summary = {
+            count: samples.length,
+            avgMs: roundNumber(getAverage(samples), 2),
+            minMs: samples.length ? roundNumber(Math.min(...samples), 2) : 0,
+            maxMs: samples.length ? roundNumber(Math.max(...samples), 2) : 0,
+            jitterMs: roundNumber(getStd(samples), 2),
+            updatedAt: firebase.database.ServerValue.TIMESTAMP
+        };
+
+        performanceRef.child("summary").child(type).set(summary).catch(error => {
+            console.warn(`Không thể cập nhật summary/${type}:`, error);
+        });
+
+        console.table({
+            metric: type,
+            count: summary.count,
+            avgMs: summary.avgMs,
+            minMs: summary.minMs,
+            maxMs: summary.maxMs,
+            jitterMs: summary.jitterMs
+        });
+    }
+
+    function estimatePayloadBytes(data) {
+        try {
+            return new Blob([JSON.stringify(data)]).size;
+        } catch (error) {
+            return JSON.stringify(data).length;
+        }
+    }
+
+    function recordIncomingPacket(data, webReceiveAt) {
+        const seqRaw = data.seq ?? data.packetSeq ?? data.id;
+        const seq = Number(seqRaw);
+
+        if (!Number.isInteger(seq) || seq <= 0) {
+            return;
+        }
+
+        if (lastLoggedDataSeq === seq) {
+            return;
+        }
+
+        lastLoggedDataSeq = seq;
+
+        if (!firstPacketReceiveAt) {
+            firstPacketReceiveAt = webReceiveAt;
+        }
+
+        receivedSeqSet.add(seq);
+        minDataSeq = minDataSeq === null ? seq : Math.min(minDataSeq, seq);
+        maxDataSeq = maxDataSeq === null ? seq : Math.max(maxDataSeq, seq);
+
+        const expectedPackets = maxDataSeq - minDataSeq + 1;
+        const receivedPackets = receivedSeqSet.size;
+        const lostPackets = Math.max(expectedPackets - receivedPackets, 0);
+
+        const packetLossRate = expectedPackets > 0 ? (lostPackets / expectedPackets) * 100 : 0;
+        const pdr = expectedPackets > 0 ? (receivedPackets / expectedPackets) * 100 : 0;
+        const reliability = pdr;
+
+        const payloadBytes = estimatePayloadBytes(data);
+        totalReceivedBytes += payloadBytes;
+
+        const elapsedSeconds = Math.max((webReceiveAt - firstPacketReceiveAt) / 1000, 1);
+        const throughputPacketPerSecond = receivedPackets / elapsedSeconds;
+        const throughputBytePerSecond = totalReceivedBytes / elapsedSeconds;
+
+        const packetSummary = {
+            minSeq: minDataSeq,
+            maxSeq: maxDataSeq,
+            expectedPackets,
+            receivedPackets,
+            lostPackets,
+            packetLossRatePercent: roundNumber(packetLossRate, 2),
+            pdrPercent: roundNumber(pdr, 2),
+            reliabilityPercent: roundNumber(reliability, 2),
+            throughputPacketPerSecond: roundNumber(throughputPacketPerSecond, 3),
+            throughputBytePerSecond: roundNumber(throughputBytePerSecond, 2),
+            lastSeq: seq,
+            lastPayloadBytes: payloadBytes,
+            webReceiveAt,
+            updatedAt: firebase.database.ServerValue.TIMESTAMP
+        };
+
+        performanceRef.child("summary").child("packet").set(packetSummary).catch(error => {
+            console.warn("Không thể cập nhật summary/packet:", error);
+        });
+
+        savePerformanceLog("packetLogs", packetSummary);
+
+        console.table({
+            seq,
+            expectedPackets,
+            receivedPackets,
+            lostPackets,
+            packetLossRate: `${packetSummary.packetLossRatePercent}%`,
+            pdr: `${packetSummary.pdrPercent}%`,
+            reliability: `${packetSummary.reliabilityPercent}%`,
+            throughput: `${packetSummary.throughputPacketPerSecond} gói/s`
+        });
+    }
+
+    function recordLatency(data, webReceiveAt) {
+        const espSentAt = normalizeTimestampToMillis(data.espSentAt ?? data.sentAt ?? data.timestampMs);
+
+        if (!espSentAt) {
+            return;
+        }
+
+        const latencyMs = webReceiveAt - espSentAt;
+
+        if (!Number.isFinite(latencyMs) || latencyMs < 0 || latencyMs > 10 * 60 * 1000) {
+            console.warn("Bỏ qua latency vì timestamp không hợp lệ hoặc ESP32 chưa đồng bộ NTP:", {
+                espSentAt,
+                webReceiveAt,
+                latencyMs
+            });
+            return;
+        }
+
+        const seq = Number(data.seq ?? 0);
+
+        pushLimitedSample(latencySamples, latencyMs);
+
+        savePerformanceLog("latencyLogs", {
+            seq: Number.isFinite(seq) ? seq : null,
+            espSentAt,
+            webReceiveAt,
+            latencyMs: roundNumber(latencyMs, 2)
+        });
+
+        updatePerformanceSummary("latency", latencySamples);
+
+        console.log(`Latency seq ${seq || "--"}: ${roundNumber(latencyMs, 2)} ms`);
+    }
+
+    function recordResponseTime(seq, mode, webSentAt, firebaseDoneAt) {
+        const responseTimeMs = firebaseDoneAt - webSentAt;
+
+        pushLimitedSample(responseTimeSamples, responseTimeMs);
+
+        savePerformanceLog("responseTimeLogs", {
+            seq,
+            mode,
+            webSentAt,
+            firebaseDoneAt,
+            responseTimeMs: roundNumber(responseTimeMs, 2)
+        });
+
+        updatePerformanceSummary("responseTime", responseTimeSamples);
+
+        console.log(`Response Time seq ${seq}: ${roundNumber(responseTimeMs, 2)} ms`);
+    }
+
+    function recordRttFromAck(ack, webReceiveAt) {
+        if (!ack) return;
+
+        const seq = Number(ack.seq ?? ack.commandSeq ?? 0);
+
+        if (!Number.isInteger(seq) || seq <= 0) {
+            return;
+        }
+
+        if (lastProcessedAckSeq === seq) {
+            return;
+        }
+
+        const pending = pendingCommands[seq] || null;
+        const webSentAt = normalizeTimestampToMillis(ack.webSentAt) || pending?.webSentAt || null;
+
+        if (!webSentAt) {
+            return;
+        }
+
+        lastProcessedAckSeq = seq;
+
+        const rttMs = webReceiveAt - webSentAt;
+
+        if (!Number.isFinite(rttMs) || rttMs < 0 || rttMs > 10 * 60 * 1000) {
+            return;
+        }
+
+        pushLimitedSample(rttSamples, rttMs);
+
+        savePerformanceLog("rttLogs", {
+            seq,
+            mode: ack.mode ?? pending?.mode ?? null,
+            status: ack.status ?? "done",
+            webSentAt,
+            espAckAt: normalizeTimestampToMillis(ack.espAckAt) || null,
+            webReceiveAckAt: webReceiveAt,
+            rttMs: roundNumber(rttMs, 2)
+        });
+
+        updatePerformanceSummary("rtt", rttSamples);
+
+        delete pendingCommands[seq];
+
+        console.log(`RTT seq ${seq}: ${roundNumber(rttMs, 2)} ms`);
+    }
+
     function setMessage(element, message, success = false) {
         if (!element) return;
         element.textContent = message || "";
@@ -767,11 +1052,15 @@ document.addEventListener("DOMContentLoaded", () => {
     const historyRef = db.ref("roomguard/history");
 
     dataRef.on("value", snapshot => {
+        const webReceiveAt = Date.now();
         const data = snapshot.val();
 
         if (!data) return;
 
         currentRoomState = data;
+
+        recordIncomingPacket(data, webReceiveAt);
+        recordLatency(data, webReceiveAt);
 
         const temp = Number(data.temperature ?? 0);
         const hum = Number(data.humidity ?? 0);
@@ -788,13 +1077,51 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const modeCard = document.getElementById("mode-card-container");
 
-    modeCard.addEventListener("click", () => {
+    modeCard.addEventListener("click", async () => {
         const currentMode = document.getElementById("val-mode").textContent;
         const newMode = currentMode === "HỌC TẬP" ? "nghi_ngoi" : "hoc_tap";
 
-        db.ref("roomguard/data").update({
-            mode: newMode
-        });
+        const seq = nextCommandSeq();
+        const webSentAt = Date.now();
+
+        pendingCommands[seq] = {
+            seq,
+            mode: newMode,
+            webSentAt
+        };
+
+        try {
+            await Promise.all([
+                dataRef.update({
+                    mode: newMode,
+                    lastWebCommandSeq: seq,
+                    webSentAt: webSentAt
+                }),
+
+                commandRef.set({
+                    seq: seq,
+                    type: "change_mode",
+                    mode: newMode,
+                    webSentAt: webSentAt,
+                    createdBy: currentUser?.uid || "web",
+                    createdByEmail: currentUserProfile?.email || "",
+                    status: "sent"
+                })
+            ]);
+
+            const firebaseDoneAt = Date.now();
+            recordResponseTime(seq, newMode, webSentAt, firebaseDoneAt);
+        } catch (error) {
+            console.error("Không thể gửi lệnh đổi chế độ:", error);
+        }
+    });
+
+    ackRef.on("value", snapshot => {
+        const ack = snapshot.val();
+
+        if (!ack) return;
+
+        recordRttFromAck(ack, Date.now());
     });
 
     historyRef.limitToLast(2000).on("value", snapshot => {
@@ -1018,7 +1345,7 @@ document.addEventListener("DOMContentLoaded", () => {
     function renderModeGroup(mode, records) {
         const label = mode === "hoc_tap" ? "HỌC TẬP" : "NGHỈ NGƠI";
         const icon = mode === "hoc_tap" ? "bx-book-reader" : "bx-coffee";
-        const modeClass = mode === "hoc_tap" ? "mode-hoc-tap" : "mode-nghi-ngoi";
+        const modeClass = mode === "hoc_tap" ? "mode-hoc-tap" : "mode-nghi_ngoi";
 
         let activeClass = "";
 
