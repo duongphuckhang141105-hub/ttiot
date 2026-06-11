@@ -57,36 +57,37 @@ document.addEventListener("DOMContentLoaded", () => {
     const inviteRole = document.getElementById("invite-role");
     const inviteCreateMessage = document.getElementById("invite-create-message");
 
+    const dataRef = db.ref("roomguard/data");
+    const historyRef = db.ref("roomguard/history");
+    const commandRef = db.ref("roomguard/command");
+    const ackRef = db.ref("roomguard/ack");
+    const performanceRef = db.ref("roomguard/performance");
+
     let currentUser = null;
     let currentUserProfile = null;
     let isAdmin = false;
-    let isCustomer = false;
-    let canControlSystem = false;
+    let isRegistering = false;
 
     let currentRoomState = null;
     let allHistoryRecords = [];
     let usersListenerStarted = false;
     let inviteListenerStarted = false;
-    let isRegistering = false;
 
     let personalTempMax = 30;
-
-    /* =========================
-       ĐO TIÊU CHÍ ĐÁNH GIÁ IOT
-       - Response Time: web ghi lệnh lên Firebase
-       - RTT: web gửi lệnh -> ESP32 ACK -> web nhận ACK
-       - Latency: ESP32 gửi data có espSentAt -> web nhận data
-       - Packet Loss / PDR / Reliability / Throughput: dựa vào seq
-       Kết quả lưu ở Firebase: roomguard/performance
-    ========================= */
-
-    const commandRef = db.ref("roomguard/command");
-    const ackRef = db.ref("roomguard/ack");
-    const performanceRef = db.ref("roomguard/performance");
+    let mainStatChart = null;
 
     let performanceCommandSeq = Number(localStorage.getItem("roomguard_command_seq") || "0");
     let pendingCommands = {};
     let lastProcessedAckSeq = null;
+
+    let latencySamples = [];
+    let latencyClockOffsetMs = null;
+    let latencyOffsetCalibrated = false;
+    let latencyManualTarget = 0;
+    let latencyManualRunning = false;
+
+    let responseTimeSamples = [];
+    let rttSamples = [];
 
     let receivedSeqSet = new Set();
     let minDataSeq = null;
@@ -95,14 +96,84 @@ document.addEventListener("DOMContentLoaded", () => {
     let totalReceivedBytes = 0;
     let lastLoggedDataSeq = null;
 
-    let responseTimeSamples = [];
-    let rttSamples = [];
-    let latencySamples = [];
+    const colorTemp = "#ef4444";
+    const colorHum = "#06b6d4";
+    const colorLux = "#eab308";
 
-    function nextCommandSeq() {
-        performanceCommandSeq += 1;
-        localStorage.setItem("roomguard_command_seq", String(performanceCommandSeq));
-        return performanceCommandSeq;
+    const bgTemp = "rgba(239,68,68,0.15)";
+    const bgHum = "rgba(6,182,212,0.15)";
+    const bgLux = "rgba(234,179,8,0.15)";
+
+    function safeText(id, value) {
+        const el = document.getElementById(id);
+        if (el) el.textContent = value;
+    }
+
+    function setMessage(element, message, success = false) {
+        if (!element) return;
+        element.textContent = message || "";
+        element.classList.toggle("success-msg", success);
+    }
+
+    function escapeHTML(text) {
+        return String(text ?? "")
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;")
+            .replaceAll("'", "&#039;");
+    }
+
+    function getFriendlyAuthError(error) {
+        const code = error?.code || "";
+
+        if (code.includes("auth/invalid-email")) return "Email không hợp lệ.";
+        if (code.includes("auth/user-not-found")) return "Không tìm thấy tài khoản.";
+        if (code.includes("auth/wrong-password")) return "Mật khẩu không đúng.";
+        if (code.includes("auth/invalid-credential")) return "Email hoặc mật khẩu không đúng.";
+        if (code.includes("auth/email-already-in-use")) return "Email này đã được đăng ký.";
+        if (code.includes("auth/weak-password")) return "Mật khẩu phải có ít nhất 6 ký tự.";
+        if (code.includes("auth/network-request-failed")) return "Lỗi mạng, hãy thử lại.";
+
+        return error?.message || "Đã xảy ra lỗi.";
+    }
+
+    function getRoleLabel(role) {
+        if (role === "admin") return "Admin";
+        if (role === "customer" || role === "user") return "Khách hàng";
+        return "Khách hàng";
+    }
+
+    function getRoleBadgeClass(role) {
+        if (role === "admin") return "role-admin";
+        return "role-customer";
+    }
+
+    function normalizeCode(code) {
+        return String(code || "").trim().toUpperCase();
+    }
+
+    function generateInviteCode(role) {
+        const prefix = role === "admin" ? "AD" : "KH";
+        const number = Math.floor(10000 + Math.random() * 90000);
+        return `${prefix}-${number}`;
+    }
+
+    async function generateUniqueInviteCode(role) {
+        let code = generateInviteCode(role);
+        let snap = await db.ref(`inviteCodes/${code}`).once("value");
+
+        while (snap.exists()) {
+            code = generateInviteCode(role);
+            snap = await db.ref(`inviteCodes/${code}`).once("value");
+        }
+
+        return code;
+    }
+
+    function formatTime(timestamp) {
+        if (!timestamp) return "--";
+        return new Date(timestamp).toLocaleString("vi-VN");
     }
 
     function normalizeTimestampToMillis(value) {
@@ -175,6 +246,8 @@ document.addEventListener("DOMContentLoaded", () => {
             maxMs: summary.maxMs,
             jitterMs: summary.jitterMs
         });
+
+        return summary;
     }
 
     function estimatePayloadBytes(data) {
@@ -182,6 +255,117 @@ document.addEventListener("DOMContentLoaded", () => {
             return new Blob([JSON.stringify(data)]).size;
         } catch (error) {
             return JSON.stringify(data).length;
+        }
+    }
+
+    function nextCommandSeq() {
+        performanceCommandSeq += 1;
+        localStorage.setItem("roomguard_command_seq", String(performanceCommandSeq));
+        return performanceCommandSeq;
+    }
+
+    function resetLatencyMeasurement() {
+        latencySamples = [];
+        latencyClockOffsetMs = null;
+        latencyOffsetCalibrated = false;
+        latencyManualTarget = 0;
+        latencyManualRunning = false;
+
+        console.clear();
+        console.log("Đã reset đo Latency. Chạy RoomGuardTest.latency(20) để đo lại.");
+    }
+
+    function showLatencyResult() {
+        if (!latencySamples.length) {
+            console.log("Chưa có mẫu latency nào. Hãy chạy RoomGuardTest.latency(20) và đợi ESP32 gửi dữ liệu.");
+            return null;
+        }
+
+        const summary = updatePerformanceSummary("latency", latencySamples);
+
+        console.log("KẾT QUẢ LATENCY");
+        console.log("Số mẫu:", summary.count);
+        console.log("Latency trung bình:", summary.avgMs, "ms =", (summary.avgMs / 1000).toFixed(3), "s");
+        console.log("Latency nhỏ nhất:", summary.minMs, "ms =", (summary.minMs / 1000).toFixed(3), "s");
+        console.log("Latency lớn nhất:", summary.maxMs, "ms =", (summary.maxMs / 1000).toFixed(3), "s");
+        console.log("Jitter:", summary.jitterMs, "ms");
+        console.log("Clock offset ESP32 - Web:", latencyClockOffsetMs, "ms");
+
+        return summary;
+    }
+
+    function recordLatency(data, webReceiveAt) {
+        if (!latencyManualRunning) {
+            return;
+        }
+
+        const espSentAt = normalizeTimestampToMillis(
+            data.espSentAt ?? data.sentAt ?? data.timestampMs ?? data.updatedAt
+        );
+
+        if (!espSentAt) {
+            return;
+        }
+
+        const rawLatencyMs = webReceiveAt - espSentAt;
+
+        if (!latencyOffsetCalibrated) {
+            latencyClockOffsetMs = espSentAt - webReceiveAt;
+            latencyOffsetCalibrated = true;
+
+            console.log("Đã hiệu chỉnh lệch đồng hồ ESP32 - Web:", latencyClockOffsetMs, "ms");
+            console.log("Mẫu đầu tiên dùng để hiệu chỉnh nên chưa đưa vào bảng latency.");
+            return;
+        }
+
+        const correctedEspSentAt = espSentAt - latencyClockOffsetMs;
+        let latencyMs = webReceiveAt - correctedEspSentAt;
+
+        if (latencyMs < 0 && latencyMs > -3000) {
+            latencyMs = 0;
+        }
+
+        if (!Number.isFinite(latencyMs) || latencyMs < 0 || latencyMs > 10 * 60 * 1000) {
+            console.warn("Bỏ qua latency vì timestamp vẫn bất thường:", {
+                espSentAt,
+                correctedEspSentAt,
+                webReceiveAt,
+                rawLatencyMs,
+                latencyClockOffsetMs,
+                latencyMs
+            });
+            return;
+        }
+
+        const seq = Number(data.seq ?? 0);
+
+        pushLimitedSample(latencySamples, latencyMs);
+
+        savePerformanceLog("latencyLogs", {
+            seq: Number.isFinite(seq) ? seq : null,
+            espSentAt,
+            correctedEspSentAt,
+            webReceiveAt,
+            rawLatencyMs: roundNumber(rawLatencyMs, 2),
+            clockOffsetMs: roundNumber(latencyClockOffsetMs, 2),
+            latencyMs: roundNumber(latencyMs, 2)
+        });
+
+        const resultRows = latencySamples.map((value, index) => ({
+            lan_do: index + 1,
+            latency_ms: roundNumber(value, 2),
+            latency_s: roundNumber(value / 1000, 3)
+        }));
+
+        console.clear();
+        console.log(`BẢNG ĐO LATENCY ĐÃ HIỆU CHỈNH (${latencySamples.length}/${latencyManualTarget})`);
+        console.log("Clock offset ESP32 - Web:", latencyClockOffsetMs, "ms");
+        console.table(resultRows);
+
+        if (latencySamples.length >= latencyManualTarget) {
+            latencyManualRunning = false;
+            console.log("Đã đủ mẫu đo latency.");
+            showLatencyResult();
         }
     }
 
@@ -242,53 +426,6 @@ document.addEventListener("DOMContentLoaded", () => {
         performanceRef.child("summary").child("packet").set(packetSummary).catch(error => {
             console.warn("Không thể cập nhật summary/packet:", error);
         });
-
-        savePerformanceLog("packetLogs", packetSummary);
-
-        console.table({
-            seq,
-            expectedPackets,
-            receivedPackets,
-            lostPackets,
-            packetLossRate: `${packetSummary.packetLossRatePercent}%`,
-            pdr: `${packetSummary.pdrPercent}%`,
-            reliability: `${packetSummary.reliabilityPercent}%`,
-            throughput: `${packetSummary.throughputPacketPerSecond} gói/s`
-        });
-    }
-
-    function recordLatency(data, webReceiveAt) {
-        const espSentAt = normalizeTimestampToMillis(data.espSentAt ?? data.sentAt ?? data.timestampMs);
-
-        if (!espSentAt) {
-            return;
-        }
-
-        const latencyMs = webReceiveAt - espSentAt;
-
-        if (!Number.isFinite(latencyMs) || latencyMs < 0 || latencyMs > 10 * 60 * 1000) {
-            console.warn("Bỏ qua latency vì timestamp không hợp lệ hoặc ESP32 chưa đồng bộ NTP:", {
-                espSentAt,
-                webReceiveAt,
-                latencyMs
-            });
-            return;
-        }
-
-        const seq = Number(data.seq ?? 0);
-
-        pushLimitedSample(latencySamples, latencyMs);
-
-        savePerformanceLog("latencyLogs", {
-            seq: Number.isFinite(seq) ? seq : null,
-            espSentAt,
-            webReceiveAt,
-            latencyMs: roundNumber(latencyMs, 2)
-        });
-
-        updatePerformanceSummary("latency", latencySamples);
-
-        console.log(`Latency seq ${seq || "--"}: ${roundNumber(latencyMs, 2)} ms`);
     }
 
     function recordResponseTime(seq, mode, webSentAt, firebaseDoneAt) {
@@ -356,80 +493,34 @@ document.addEventListener("DOMContentLoaded", () => {
         console.log(`RTT seq ${seq}: ${roundNumber(rttMs, 2)} ms`);
     }
 
-    function setMessage(element, message, success = false) {
-        if (!element) return;
-        element.textContent = message || "";
-        element.classList.toggle("success-msg", success);
-    }
+    window.RoomGuardTest = {
+        latency(sampleCount = 20) {
+            latencySamples = [];
+            latencyClockOffsetMs = null;
+            latencyOffsetCalibrated = false;
+            latencyManualTarget = Number(sampleCount) || 20;
+            latencyManualRunning = true;
 
-    function getFriendlyAuthError(error) {
-        const code = error?.code || "";
+            console.clear();
+            console.log(`BẮT ĐẦU ĐO LATENCY ${latencyManualTarget} MẪU`);
+            console.log("Mẫu đầu tiên sẽ dùng để hiệu chỉnh lệch đồng hồ ESP32 - Web.");
+            console.log("Hãy chờ ESP32 gửi dữ liệu mới lên Firebase.");
+        },
 
-        if (code.includes("auth/invalid-email")) return "Email không hợp lệ.";
-        if (code.includes("auth/user-not-found")) return "Không tìm thấy tài khoản.";
-        if (code.includes("auth/wrong-password")) return "Mật khẩu không đúng.";
-        if (code.includes("auth/invalid-credential")) return "Email hoặc mật khẩu không đúng.";
-        if (code.includes("auth/email-already-in-use")) return "Email này đã được đăng ký.";
-        if (code.includes("auth/weak-password")) return "Mật khẩu phải có ít nhất 6 ký tự.";
-        if (code.includes("auth/network-request-failed")) return "Lỗi mạng, hãy thử lại.";
+        latencyResult() {
+            return showLatencyResult();
+        },
 
-        return error?.message || "Đã xảy ra lỗi.";
-    }
+        resetLatency() {
+            resetLatencyMeasurement();
+        },
 
-    function getRoleLabel(role) {
-        if (role === "admin") return "Admin";
-        if (role === "customer") return "Khách hàng";
-        if (role === "user") return "Khách hàng";
-        return "Khách hàng";
-    }
-
-    function getRoleBadgeClass(role) {
-        if (role === "admin") return "role-admin";
-        if (role === "customer") return "role-customer";
-        if (role === "user") return "role-customer";
-        return "role-customer";
-    }
-
-    function normalizeCode(code) {
-        return String(code || "").trim().toUpperCase();
-    }
-
-    function generateInviteCode(role) {
-        const prefixMap = {
-            customer: "KH",
-            admin: "AD"
-        };
-
-        const prefix = prefixMap[role] || "KH";
-        const number = Math.floor(10000 + Math.random() * 90000);
-        return `${prefix}-${number}`;
-    }
-
-    async function generateUniqueInviteCode(role) {
-        let code = generateInviteCode(role);
-        let snap = await db.ref(`inviteCodes/${code}`).once("value");
-
-        while (snap.exists()) {
-            code = generateInviteCode(role);
-            snap = await db.ref(`inviteCodes/${code}`).once("value");
+        help() {
+            console.log("RoomGuardTest.latency(20)      // đo latency 20 mẫu");
+            console.log("RoomGuardTest.latencyResult()  // xem kết quả latency hiện tại");
+            console.log("RoomGuardTest.resetLatency()   // reset đo latency");
         }
-
-        return code;
-    }
-
-    function formatTime(timestamp) {
-        if (!timestamp) return "--";
-        return new Date(timestamp).toLocaleString("vi-VN");
-    }
-
-    function escapeHTML(text) {
-        return String(text ?? "")
-            .replaceAll("&", "&amp;")
-            .replaceAll("<", "&lt;")
-            .replaceAll(">", "&gt;")
-            .replaceAll('"', "&quot;")
-            .replaceAll("'", "&#039;");
-    }
+    };
 
     function switchAuthTab(tabName) {
         authTabs.forEach(tab => {
@@ -445,36 +536,33 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function showLogin() {
-        appLayout.classList.remove("active");
-        loginScreen.classList.add("active");
+        if (appLayout) appLayout.classList.remove("active");
+        if (loginScreen) loginScreen.classList.add("active");
         switchAuthTab("login");
     }
 
     function showApp(profile) {
-        loginScreen.classList.remove("active");
-        appLayout.classList.add("active");
+        if (loginScreen) loginScreen.classList.remove("active");
+        if (appLayout) appLayout.classList.add("active");
 
         currentUserProfile = profile;
-
         isAdmin = profile.role === "admin";
-        isCustomer = profile.role === "customer" || profile.role === "user";
-        canControlSystem = true;
 
         document.querySelectorAll(".admin-only").forEach(item => {
             item.style.display = isAdmin ? "flex" : "none";
         });
 
-        document.getElementById("sidebar-user-name").textContent = profile.name || "Người dùng";
-        document.getElementById("setting-user-email").textContent = profile.email || "--";
-        document.getElementById("setting-user-role").textContent = getRoleLabel(profile.role);
-        document.getElementById("setting-user-status").textContent = profile.status || "--";
-        document.getElementById("setting-user-code").textContent = profile.registerCode || "--";
+        safeText("sidebar-user-name", profile.name || "Người dùng");
+        safeText("setting-user-email", profile.email || "--");
+        safeText("setting-user-role", getRoleLabel(profile.role));
+        safeText("setting-user-status", profile.status || "--");
+        safeText("setting-user-code", profile.registerCode || "--");
 
         const modeHint = document.getElementById("mode-hint");
         const modeCard = document.getElementById("mode-card-container");
 
-        modeHint.textContent = "Nhấn đổi chế độ";
-        modeCard.classList.remove("disabled-card");
+        if (modeHint) modeHint.textContent = "Nhấn đổi chế độ";
+        if (modeCard) modeCard.classList.remove("disabled-card");
 
         goToPage("dashboard-page");
     }
@@ -489,7 +577,8 @@ document.addEventListener("DOMContentLoaded", () => {
         });
 
         const activeLink = document.querySelector(`.nav-links li[data-target="${targetId}"]`);
-        if (activeLink) {
+
+        if (activeLink && pageTitle) {
             pageTitle.textContent = activeLink.querySelector("span").textContent;
         }
 
@@ -508,102 +597,109 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     });
 
-    loginForm.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        setMessage(loginError, "");
+    if (loginForm) {
+        loginForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            setMessage(loginError, "");
 
-        try {
-            await auth.signInWithEmailAndPassword(
-                loginEmail.value.trim(),
-                loginPassword.value
-            );
-        } catch (error) {
-            setMessage(loginError, getFriendlyAuthError(error));
-        }
-    });
+            try {
+                await auth.signInWithEmailAndPassword(
+                    loginEmail.value.trim(),
+                    loginPassword.value
+                );
+            } catch (error) {
+                setMessage(loginError, getFriendlyAuthError(error));
+            }
+        });
+    }
 
-    registerForm.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        setMessage(registerError, "");
+    if (registerForm) {
+        registerForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            setMessage(registerError, "");
 
-        const name = registerName.value.trim();
-        const email = registerEmail.value.trim();
-        const password = registerPassword.value;
-        const confirm = registerPasswordConfirm.value;
-        const code = normalizeCode(registerCode.value);
+            const name = registerName.value.trim();
+            const email = registerEmail.value.trim();
+            const password = registerPassword.value;
+            const confirm = registerPasswordConfirm.value;
+            const code = normalizeCode(registerCode.value);
 
-        if (!name) {
-            setMessage(registerError, "Vui lòng nhập họ tên.");
-            return;
-        }
-
-        if (password !== confirm) {
-            setMessage(registerError, "Mật khẩu nhập lại không khớp.");
-            return;
-        }
-
-        if (!code) {
-            setMessage(registerError, "Vui lòng nhập mã đăng ký do admin cấp.");
-            return;
-        }
-
-        try {
-            const codeSnap = await db.ref(`inviteCodes/${code}`).once("value");
-
-            if (!codeSnap.exists()) {
-                setMessage(registerError, "Mã đăng ký không tồn tại.");
+            if (!name) {
+                setMessage(registerError, "Vui lòng nhập họ tên.");
                 return;
             }
 
-            const codeData = codeSnap.val();
-
-            if (codeData.status !== "unused") {
-                setMessage(registerError, "Mã đăng ký này đã được sử dụng hoặc đã bị khóa.");
+            if (password !== confirm) {
+                setMessage(registerError, "Mật khẩu nhập lại không khớp.");
                 return;
             }
 
-            isRegistering = true;
+            if (!code) {
+                setMessage(registerError, "Vui lòng nhập mã đăng ký do admin cấp.");
+                return;
+            }
 
-            const credential = await auth.createUserWithEmailAndPassword(email, password);
-            const uid = credential.user.uid;
+            try {
+                const codeSnap = await db.ref(`inviteCodes/${code}`).once("value");
 
-            const userProfile = {
-                name: name,
-                email: email,
-                role: codeData.role || "customer",
-                status: "approved",
-                registerCode: code,
-                registerCodeName: codeData.name || "",
-                createdAt: Date.now(),
-                approvedAt: Date.now(),
-                approvedBy: codeData.createdBy || null
-            };
+                if (!codeSnap.exists()) {
+                    setMessage(registerError, "Mã đăng ký không tồn tại.");
+                    return;
+                }
 
-            await db.ref(`users/${uid}`).set(userProfile);
+                const codeData = codeSnap.val();
 
-            await db.ref(`inviteCodes/${code}`).update({
-                status: "used",
-                usedBy: uid,
-                usedByName: name,
-                usedByEmail: email,
-                usedAt: Date.now()
-            });
+                if (codeData.status !== "unused") {
+                    setMessage(registerError, "Mã đăng ký này đã được sử dụng hoặc đã bị khóa.");
+                    return;
+                }
 
-            isRegistering = false;
+                isRegistering = true;
 
-            registerForm.reset();
-            setMessage(registerError, "Đăng ký thành công. Đang chuyển vào hệ thống...", true);
-            showApp(userProfile);
-            loadPersonalTemperatureThreshold(uid);
-        } catch (error) {
-            isRegistering = false;
-            setMessage(registerError, getFriendlyAuthError(error));
-        }
-    });
+                const credential = await auth.createUserWithEmailAndPassword(email, password);
+                const uid = credential.user.uid;
 
-    logoutBtn.addEventListener("click", () => {
-        auth.signOut();
-    });
+                const userProfile = {
+                    name: name,
+                    email: email,
+                    role: codeData.role || "customer",
+                    status: "approved",
+                    registerCode: code,
+                    registerCodeName: codeData.name || "",
+                    createdAt: Date.now(),
+                    approvedAt: Date.now(),
+                    approvedBy: codeData.createdBy || null
+                };
+
+                await db.ref(`users/${uid}`).set(userProfile);
+
+                await db.ref(`inviteCodes/${code}`).update({
+                    status: "used",
+                    usedBy: uid,
+                    usedByName: name,
+                    usedByEmail: email,
+                    usedAt: Date.now()
+                });
+
+                isRegistering = false;
+
+                registerForm.reset();
+                setMessage(registerError, "Đăng ký thành công. Đang chuyển vào hệ thống...", true);
+
+                showApp(userProfile);
+                loadPersonalTemperatureThreshold(uid);
+            } catch (error) {
+                isRegistering = false;
+                setMessage(registerError, getFriendlyAuthError(error));
+            }
+        });
+    }
+
+    if (logoutBtn) {
+        logoutBtn.addEventListener("click", () => {
+            auth.signOut();
+        });
+    }
 
     auth.onAuthStateChanged(async (user) => {
         currentUser = user;
@@ -611,8 +707,6 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!user) {
             currentUserProfile = null;
             isAdmin = false;
-            isCustomer = false;
-            canControlSystem = false;
             showLogin();
             return;
         }
@@ -656,18 +750,26 @@ document.addEventListener("DOMContentLoaded", () => {
 
             goToPage(targetId);
 
-            if (window.innerWidth <= 768) {
+            if (window.innerWidth <= 768 && sidebar) {
                 sidebar.classList.remove("show");
             }
         });
     });
 
-    openSidebarBtn.addEventListener("click", () => sidebar.classList.add("show"));
-    closeSidebarBtn.addEventListener("click", () => sidebar.classList.remove("show"));
+    if (openSidebarBtn) {
+        openSidebarBtn.addEventListener("click", () => sidebar.classList.add("show"));
+    }
+
+    if (closeSidebarBtn) {
+        closeSidebarBtn.addEventListener("click", () => sidebar.classList.remove("show"));
+    }
 
     function updateClock() {
+        const clock = document.getElementById("clock");
+        if (!clock) return;
+
         const now = new Date();
-        document.getElementById("clock").textContent = now.toLocaleTimeString("vi-VN", {
+        clock.textContent = now.toLocaleTimeString("vi-VN", {
             hour12: false
         });
     }
@@ -677,10 +779,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const savedTheme = localStorage.getItem("roomguard_theme") || "dark";
     document.documentElement.setAttribute("data-theme", savedTheme);
-    settingDarkModeSwitch.checked = savedTheme === "dark";
+
+    if (settingDarkModeSwitch) {
+        settingDarkModeSwitch.checked = savedTheme === "dark";
+    }
+
     updateThemeIcon(savedTheme);
 
     function updateThemeIcon(theme) {
+        if (!themeToggleBtn) return;
+
         themeToggleBtn.innerHTML = theme === "dark"
             ? "<i class='bx bx-sun'></i>"
             : "<i class='bx bx-moon'></i>";
@@ -692,14 +800,25 @@ document.addEventListener("DOMContentLoaded", () => {
 
         document.documentElement.setAttribute("data-theme", newTheme);
         localStorage.setItem("roomguard_theme", newTheme);
-        settingDarkModeSwitch.checked = newTheme === "dark";
+
+        if (settingDarkModeSwitch) {
+            settingDarkModeSwitch.checked = newTheme === "dark";
+        }
+
         updateThemeIcon(newTheme);
     }
 
-    themeToggleBtn.addEventListener("click", toggleTheme);
-    settingDarkModeSwitch.addEventListener("change", toggleTheme);
+    if (themeToggleBtn) {
+        themeToggleBtn.addEventListener("click", toggleTheme);
+    }
+
+    if (settingDarkModeSwitch) {
+        settingDarkModeSwitch.addEventListener("change", toggleTheme);
+    }
 
     db.ref(".info/connected").on("value", (snapshot) => {
+        if (!connStatus) return;
+
         if (snapshot.val() === true) {
             connStatus.innerHTML = `<span class="dot pulse"></span><span>Online</span>`;
         } else {
@@ -707,21 +826,19 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    Chart.defaults.color = "#94a3b8";
-    Chart.defaults.font.family = "'Outfit', sans-serif";
-
-    const colorTemp = "#ef4444";
-    const colorHum = "#06b6d4";
-    const colorLux = "#eab308";
-
-    const bgTemp = "rgba(239,68,68,0.15)";
-    const bgHum = "rgba(6,182,212,0.15)";
-    const bgLux = "rgba(234,179,8,0.15)";
+    if (window.Chart) {
+        Chart.defaults.color = "#94a3b8";
+        Chart.defaults.font.family = "'Outfit', sans-serif";
+    }
 
     function createSmallChart(canvasId, color, background) {
-        const ctx = document.getElementById(canvasId).getContext("2d");
+        const canvas = document.getElementById(canvasId);
 
-        return new Chart(ctx, {
+        if (!canvas || !window.Chart) {
+            return null;
+        }
+
+        return new Chart(canvas.getContext("2d"), {
             type: "line",
             data: {
                 labels: [],
@@ -753,22 +870,28 @@ document.addEventListener("DOMContentLoaded", () => {
     const humChart = createSmallChart("humidityChart", colorHum, bgHum);
     const luxChart = createSmallChart("lightChart", colorLux, bgLux);
 
-    let mainStatChart = null;
-
     function updateSmallChart(chart, labels, data) {
+        if (!chart) return;
+
         chart.data.labels = labels;
         chart.data.datasets[0].data = data;
         chart.update();
     }
 
     function updateMainChart(type, labels, tempData, humData, luxData, title) {
+        const canvas = document.getElementById("mainChart");
+
+        if (!canvas || !window.Chart) {
+            return;
+        }
+
         if (mainStatChart) {
             mainStatChart.destroy();
         }
 
         const isLine = type === "line";
 
-        mainStatChart = new Chart(document.getElementById("mainChart").getContext("2d"), {
+        mainStatChart = new Chart(canvas.getContext("2d"), {
             type: type,
             data: {
                 labels: labels,
@@ -875,6 +998,36 @@ document.addEventListener("DOMContentLoaded", () => {
         return getWarningDetails(temp, hum, lux, mode).length > 0;
     }
 
+    function refreshDashboardWarningByPersonalTemp() {
+        if (!currentRoomState) return;
+
+        const temp = Number(currentRoomState.temperature ?? 0);
+        const hum = Number(currentRoomState.humidity ?? 0);
+        const lux = Number(currentRoomState.light ?? 0);
+        const mode = currentRoomState.mode ?? "nghi_ngoi";
+
+        const warnings = getWarningDetails(temp, hum, lux, mode);
+        const statusEl = document.getElementById("global-status");
+
+        if (!statusEl) return;
+
+        if (warnings.length > 0) {
+            statusEl.className = "status-banner danger";
+            statusEl.innerHTML = `
+                <i class="bx bx-error"></i>
+                <span>
+                    <strong>CẢNH BÁO:</strong> ${warnings.join(" | ")}
+                </span>
+            `;
+        } else {
+            statusEl.className = "status-banner good";
+            statusEl.innerHTML = `
+                <i class="bx bx-check-shield"></i>
+                <span>THÔNG SỐ PHÙ HỢP VỚI NGƯỠNG CÁ NHÂN</span>
+            `;
+        }
+    }
+
     function parseHistoryData(historyData) {
         if (!historyData) return [];
 
@@ -885,7 +1038,16 @@ document.addEventListener("DOMContentLoaded", () => {
                 const lux = Number(item.light ?? 0);
                 const mode = item.mode || "nghi_ngoi";
                 const updatedAt = Number(item.updatedAt ?? 0);
-                const dateObj = updatedAt > 0 ? new Date(updatedAt * 1000) : new Date();
+
+                let dateObj;
+
+                if (updatedAt > 1000000000000) {
+                    dateObj = new Date(updatedAt);
+                } else if (updatedAt > 100000) {
+                    dateObj = new Date(updatedAt * 1000);
+                } else {
+                    dateObj = new Date();
+                }
 
                 const isWarning = checkWarningStatus(temp, hum, lux, mode);
 
@@ -904,7 +1066,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 };
             })
             .filter(record => record.updatedAt > 0)
-            .sort((a, b) => b.updatedAt - a.updatedAt);
+            .sort((a, b) => b.dateObj - a.dateObj);
     }
 
     function filterRecordsByDate(records, dateString) {
@@ -1024,11 +1186,16 @@ document.addEventListener("DOMContentLoaded", () => {
     function calculateSummary(records) {
         const count = records.length;
 
+        const avgTemp = document.getElementById("stat-avg-temp");
+        const avgHum = document.getElementById("stat-avg-hum");
+        const avgLux = document.getElementById("stat-avg-lux");
+        const statCount = document.getElementById("stat-count");
+
         if (count === 0) {
-            document.getElementById("stat-avg-temp").textContent = "-- °C";
-            document.getElementById("stat-avg-hum").textContent = "-- %";
-            document.getElementById("stat-avg-lux").textContent = "-- Lux";
-            document.getElementById("stat-count").textContent = "0";
+            if (avgTemp) avgTemp.textContent = "-- °C";
+            if (avgHum) avgHum.textContent = "-- %";
+            if (avgLux) avgLux.textContent = "-- Lux";
+            if (statCount) statCount.textContent = "0";
             return;
         }
 
@@ -1042,118 +1209,19 @@ document.addEventListener("DOMContentLoaded", () => {
             sumLux += record.light;
         });
 
-        document.getElementById("stat-avg-temp").textContent = `${(sumTemp / count).toFixed(1)} °C`;
-        document.getElementById("stat-avg-hum").textContent = `${(sumHum / count).toFixed(0)} %`;
-        document.getElementById("stat-avg-lux").textContent = `${(sumLux / count).toFixed(0)} Lux`;
-        document.getElementById("stat-count").textContent = count;
+        if (avgTemp) avgTemp.textContent = `${(sumTemp / count).toFixed(1)} °C`;
+        if (avgHum) avgHum.textContent = `${(sumHum / count).toFixed(0)} %`;
+        if (avgLux) avgLux.textContent = `${(sumLux / count).toFixed(0)} Lux`;
+        if (statCount) statCount.textContent = count;
     }
-
-    const dataRef = db.ref("roomguard/data");
-    const historyRef = db.ref("roomguard/history");
-
-    dataRef.on("value", snapshot => {
-        const webReceiveAt = Date.now();
-        const data = snapshot.val();
-
-        if (!data) return;
-
-        currentRoomState = data;
-
-        recordIncomingPacket(data, webReceiveAt);
-        recordLatency(data, webReceiveAt);
-
-        const temp = Number(data.temperature ?? 0);
-        const hum = Number(data.humidity ?? 0);
-        const lux = Number(data.light ?? 0);
-        const mode = data.mode ?? "nghi_ngoi";
-
-        document.getElementById("val-temp").textContent = temp.toFixed(1);
-        document.getElementById("val-hum").textContent = hum.toFixed(0);
-        document.getElementById("val-lux").textContent = lux.toFixed(0);
-        document.getElementById("val-mode").textContent = mode === "hoc_tap" ? "HỌC TẬP" : "NGHỈ NGƠI";
-
-        refreshDashboardWarningByPersonalTemp();
-    });
-
-    const modeCard = document.getElementById("mode-card-container");
-
-    modeCard.addEventListener("click", async () => {
-        const currentMode = document.getElementById("val-mode").textContent;
-        const newMode = currentMode === "HỌC TẬP" ? "nghi_ngoi" : "hoc_tap";
-
-        const seq = nextCommandSeq();
-        const webSentAt = Date.now();
-
-        pendingCommands[seq] = {
-            seq,
-            mode: newMode,
-            webSentAt
-        };
-
-        try {
-            await Promise.all([
-                dataRef.update({
-                    mode: newMode,
-                    lastWebCommandSeq: seq,
-                    webSentAt: webSentAt
-                }),
-
-                commandRef.set({
-                    seq: seq,
-                    type: "change_mode",
-                    mode: newMode,
-                    webSentAt: webSentAt,
-                    createdBy: currentUser?.uid || "web",
-                    createdByEmail: currentUserProfile?.email || "",
-                    status: "sent"
-                })
-            ]);
-
-            const firebaseDoneAt = Date.now();
-            recordResponseTime(seq, newMode, webSentAt, firebaseDoneAt);
-        } catch (error) {
-            console.error("Không thể gửi lệnh đổi chế độ:", error);
-        }
-    });
-
-    ackRef.on("value", snapshot => {
-        const ack = snapshot.val();
-
-        if (!ack) return;
-
-        recordRttFromAck(ack, Date.now());
-    });
-
-    historyRef.limitToLast(2000).on("value", snapshot => {
-        allHistoryRecords = parseHistoryData(snapshot.val());
-
-        renderOverviewCharts(allHistoryRecords);
-        renderCurrentStatistic();
-        renderHistoryByDate(allHistoryRecords);
-    });
 
     function renderOverviewCharts(records) {
         const chartRecords = records.slice(0, 20).reverse();
-
         const labels = chartRecords.map(record => record.time);
 
-        updateSmallChart(
-            tempChart,
-            labels,
-            chartRecords.map(record => record.temperature)
-        );
-
-        updateSmallChart(
-            humChart,
-            labels,
-            chartRecords.map(record => record.humidity)
-        );
-
-        updateSmallChart(
-            luxChart,
-            labels,
-            chartRecords.map(record => record.light)
-        );
+        updateSmallChart(tempChart, labels, chartRecords.map(record => record.temperature));
+        updateSmallChart(humChart, labels, chartRecords.map(record => record.humidity));
+        updateSmallChart(luxChart, labels, chartRecords.map(record => record.light));
     }
 
     let currentStatMode = "realtime";
@@ -1164,11 +1232,22 @@ document.addEventListener("DOMContentLoaded", () => {
     const monthInput = document.getElementById("stat-month");
 
     const now = new Date();
-    dateInput.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-    monthInput.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 
-    datePickersContainer.style.display = "none";
-    monthInput.style.display = "none";
+    if (dateInput) {
+        dateInput.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    }
+
+    if (monthInput) {
+        monthInput.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    }
+
+    if (datePickersContainer) {
+        datePickersContainer.style.display = "none";
+    }
+
+    if (monthInput) {
+        monthInput.style.display = "none";
+    }
 
     statButtons.forEach(button => {
         button.addEventListener("click", () => {
@@ -1178,23 +1257,28 @@ document.addEventListener("DOMContentLoaded", () => {
             currentStatMode = button.dataset.mode;
 
             if (currentStatMode === "realtime") {
-                datePickersContainer.style.display = "none";
+                if (datePickersContainer) datePickersContainer.style.display = "none";
             } else if (currentStatMode === "daily") {
-                datePickersContainer.style.display = "flex";
-                dateInput.style.display = "block";
-                monthInput.style.display = "none";
+                if (datePickersContainer) datePickersContainer.style.display = "flex";
+                if (dateInput) dateInput.style.display = "block";
+                if (monthInput) monthInput.style.display = "none";
             } else if (currentStatMode === "monthly") {
-                datePickersContainer.style.display = "flex";
-                dateInput.style.display = "none";
-                monthInput.style.display = "block";
+                if (datePickersContainer) datePickersContainer.style.display = "flex";
+                if (dateInput) dateInput.style.display = "none";
+                if (monthInput) monthInput.style.display = "block";
             }
 
             renderCurrentStatistic();
         });
     });
 
-    dateInput.addEventListener("change", renderCurrentStatistic);
-    monthInput.addEventListener("change", renderCurrentStatistic);
+    if (dateInput) {
+        dateInput.addEventListener("change", renderCurrentStatistic);
+    }
+
+    if (monthInput) {
+        monthInput.addEventListener("change", renderCurrentStatistic);
+    }
 
     function renderCurrentStatistic() {
         if (currentStatMode === "realtime") {
@@ -1212,7 +1296,7 @@ document.addEventListener("DOMContentLoaded", () => {
             calculateSummary(records);
         }
 
-        if (currentStatMode === "daily") {
+        if (currentStatMode === "daily" && dateInput) {
             const records = filterRecordsByDate(allHistoryRecords, dateInput.value);
             const grouped = groupByHourAverage(records);
 
@@ -1228,7 +1312,7 @@ document.addEventListener("DOMContentLoaded", () => {
             calculateSummary(records);
         }
 
-        if (currentStatMode === "monthly") {
+        if (currentStatMode === "monthly" && monthInput) {
             const records = filterRecordsByMonth(allHistoryRecords, monthInput.value);
             const grouped = groupByDayAverage(records);
 
@@ -1252,8 +1336,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
     let activeHistoryMode = "all";
 
-    filterDate.addEventListener("change", () => renderHistoryByDate(allHistoryRecords));
-    filterStatus.addEventListener("change", () => renderHistoryByDate(allHistoryRecords));
+    if (filterDate) {
+        filterDate.addEventListener("change", () => renderHistoryByDate(allHistoryRecords));
+    }
+
+    if (filterStatus) {
+        filterStatus.addEventListener("change", () => renderHistoryByDate(allHistoryRecords));
+    }
 
     modeTabs.forEach(button => {
         button.addEventListener("click", () => {
@@ -1268,15 +1357,15 @@ document.addEventListener("DOMContentLoaded", () => {
     function filterHistoryRecords(records) {
         let filtered = [...records];
 
-        if (filterDate.value) {
+        if (filterDate && filterDate.value) {
             filtered = filterRecordsByDate(filtered, filterDate.value);
         }
 
-        if (filterStatus.value === "normal") {
+        if (filterStatus && filterStatus.value === "normal") {
             filtered = filtered.filter(record => !record.isWarning);
         }
 
-        if (filterStatus.value === "warning") {
+        if (filterStatus && filterStatus.value === "warning") {
             filtered = filtered.filter(record => record.isWarning);
         }
 
@@ -1345,7 +1434,7 @@ document.addEventListener("DOMContentLoaded", () => {
     function renderModeGroup(mode, records) {
         const label = mode === "hoc_tap" ? "HỌC TẬP" : "NGHỈ NGƠI";
         const icon = mode === "hoc_tap" ? "bx-book-reader" : "bx-coffee";
-        const modeClass = mode === "hoc_tap" ? "mode-hoc-tap" : "mode-nghi_ngoi";
+        const modeClass = mode === "hoc_tap" ? "mode-hoc-tap" : "mode-nghi-ngoi";
 
         let activeClass = "";
 
@@ -1393,191 +1482,88 @@ document.addEventListener("DOMContentLoaded", () => {
         `;
     }
 
-    function listenAdminData() {
-        if (!isAdmin) return;
+    dataRef.on("value", snapshot => {
+        const webReceiveAt = Date.now();
+        const data = snapshot.val();
 
-        if (!usersListenerStarted) {
-            usersListenerStarted = true;
+        if (!data) return;
 
-            db.ref("users").on("value", snapshot => {
-                const users = snapshot.val() || {};
-                renderRegisteredUsers(users);
-            });
-        }
+        currentRoomState = data;
 
-        if (!inviteListenerStarted) {
-            inviteListenerStarted = true;
+        recordIncomingPacket(data, webReceiveAt);
+        recordLatency(data, webReceiveAt);
 
-            db.ref("inviteCodes").on("value", snapshot => {
-                const codes = snapshot.val() || {};
-                renderInviteCodes(codes);
-            });
-        }
-    }
+        const temp = Number(data.temperature ?? 0);
+        const hum = Number(data.humidity ?? 0);
+        const lux = Number(data.light ?? 0);
+        const mode = data.mode ?? "nghi_ngoi";
 
-    createInviteBtn.addEventListener("click", async () => {
-        if (!isAdmin) {
-            return;
-        }
+        safeText("val-temp", temp.toFixed(1));
+        safeText("val-hum", hum.toFixed(0));
+        safeText("val-lux", lux.toFixed(0));
+        safeText("val-mode", mode === "hoc_tap" ? "HỌC TẬP" : "NGHỈ NGƠI");
 
-        const name = inviteName.value.trim();
-        const role = inviteRole.value;
-
-        if (!name) {
-            inviteCreateMessage.textContent = "Vui lòng nhập tên người nhận / username.";
-            inviteCreateMessage.className = "invite-message error";
-            return;
-        }
-
-        try {
-            const code = await generateUniqueInviteCode(role);
-
-            await db.ref(`inviteCodes/${code}`).set({
-                code: code,
-                name: name,
-                role: role,
-                status: "unused",
-                createdAt: Date.now(),
-                createdBy: currentUser.uid,
-                createdByEmail: currentUserProfile.email || "",
-                usedBy: null,
-                usedByName: null,
-                usedByEmail: null,
-                usedAt: null
-            });
-
-            inviteCreateMessage.innerHTML = `Đã tạo mã: <strong>${code}</strong>`;
-            inviteCreateMessage.className = "invite-message success";
-
-            inviteName.value = "";
-            inviteRole.value = "customer";
-        } catch (error) {
-            inviteCreateMessage.textContent = "Không thể tạo mã đăng ký.";
-            inviteCreateMessage.className = "invite-message error";
-        }
+        refreshDashboardWarningByPersonalTemp();
     });
 
-    function renderInviteCodes(codes) {
-        const unusedList = document.getElementById("unused-codes-list");
-        const usedList = document.getElementById("used-codes-list");
-        const unusedCount = document.getElementById("unused-code-count");
-        const usedCount = document.getElementById("used-code-count");
+    const modeCard = document.getElementById("mode-card-container");
 
-        const codeArray = Object.values(codes).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    if (modeCard) {
+        modeCard.addEventListener("click", async () => {
+            const currentMode = document.getElementById("val-mode")?.textContent || "";
+            const newMode = currentMode.trim() === "HỌC TẬP" ? "nghi_ngoi" : "hoc_tap";
 
-        const unusedCodes = codeArray.filter(code => code.status === "unused");
-        const usedCodes = codeArray.filter(code => code.status === "used");
+            const seq = nextCommandSeq();
+            const webSentAt = Date.now();
 
-        unusedCount.textContent = unusedCodes.length;
-        usedCount.textContent = usedCodes.length;
+            pendingCommands[seq] = {
+                seq,
+                mode: newMode,
+                webSentAt
+            };
 
-        if (unusedCodes.length === 0) {
-            unusedList.innerHTML = `
-                <div class="empty-state small">
-                    <p>Chưa có mã đăng ký nào.</p>
-                </div>
-            `;
-        } else {
-            unusedList.innerHTML = unusedCodes.map(code => `
-                <div class="approval-user-card invite-card">
-                    <div>
-                        <h4>${escapeHTML(code.code)}</h4>
-                        <p>${escapeHTML(code.name || "--")}</p>
-                        <small>
-                            Vai trò:
-                            <span class="role-badge ${getRoleBadgeClass(code.role)}">
-                                ${getRoleLabel(code.role)}
-                            </span>
-                        </small>
-                        <small>Tạo lúc: ${formatTime(code.createdAt)}</small>
-                    </div>
+            try {
+                await Promise.all([
+                    dataRef.update({
+                        mode: newMode,
+                        lastWebCommandSeq: seq,
+                        webSentAt: webSentAt
+                    }),
 
-                    <div class="approval-actions">
-                        <button class="btn btn-danger btn-small" data-delete-code="${escapeHTML(code.code)}">
-                            Xóa
-                        </button>
-                    </div>
-                </div>
-            `).join("");
+                    commandRef.set({
+                        seq: seq,
+                        type: "change_mode",
+                        mode: newMode,
+                        webSentAt: webSentAt,
+                        createdBy: currentUser?.uid || "web",
+                        createdByEmail: currentUserProfile?.email || "",
+                        status: "sent"
+                    })
+                ]);
 
-            unusedList.querySelectorAll("[data-delete-code]").forEach(button => {
-                button.addEventListener("click", async () => {
-                    const code = button.dataset.deleteCode;
-                    if (confirm(`Xóa mã ${code}?`)) {
-                        await db.ref(`inviteCodes/${code}`).remove();
-                    }
-                });
-            });
-        }
-
-        if (usedCodes.length === 0) {
-            usedList.innerHTML = `
-                <div class="empty-state small">
-                    <p>Chưa có mã nào được sử dụng.</p>
-                </div>
-            `;
-        } else {
-            usedList.innerHTML = usedCodes.map(code => `
-                <div class="approval-user-card invite-card processed">
-                    <div>
-                        <h4>${escapeHTML(code.code)}</h4>
-                        <p>${escapeHTML(code.name || "--")}</p>
-                        <small>
-                            Vai trò:
-                            <span class="role-badge ${getRoleBadgeClass(code.role)}">
-                                ${getRoleLabel(code.role)}
-                            </span>
-                        </small>
-                        <small>Dùng bởi: ${escapeHTML(code.usedByName || "--")} - ${escapeHTML(code.usedByEmail || "--")}</small>
-                        <small>Dùng lúc: ${formatTime(code.usedAt)}</small>
-                    </div>
-
-                    <span class="badge-status normal">used</span>
-                </div>
-            `).join("");
-        }
+                const firebaseDoneAt = Date.now();
+                recordResponseTime(seq, newMode, webSentAt, firebaseDoneAt);
+            } catch (error) {
+                console.error("Không thể gửi lệnh đổi chế độ:", error);
+            }
+        });
     }
 
-    function renderRegisteredUsers(users) {
-        const container = document.getElementById("registered-users-list");
-        const countEl = document.getElementById("registered-user-count");
+    ackRef.on("value", snapshot => {
+        const ack = snapshot.val();
 
-        const userArray = Object.entries(users)
-            .map(([uid, user]) => ({ uid, ...user }))
-            .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        if (!ack) return;
 
-        countEl.textContent = userArray.length;
-        document.getElementById("notif-count").textContent = "0";
+        recordRttFromAck(ack, Date.now());
+    });
 
-        if (userArray.length === 0) {
-            container.innerHTML = `
-                <div class="empty-state small">
-                    <p>Chưa có tài khoản.</p>
-                </div>
-            `;
-            return;
-        }
+    historyRef.limitToLast(2000).on("value", snapshot => {
+        allHistoryRecords = parseHistoryData(snapshot.val());
 
-        container.innerHTML = userArray.map(user => `
-            <div class="approval-user-card processed">
-                <div>
-                    <h4>${escapeHTML(user.name || "Người dùng")}</h4>
-                    <p>${escapeHTML(user.email || "--")}</p>
-                    <small>
-                        Vai trò:
-                        <span class="role-badge ${getRoleBadgeClass(user.role)}">
-                            ${getRoleLabel(user.role)}
-                        </span>
-                    </small>
-                    <small>Mã: ${escapeHTML(user.registerCode || "--")}</small>
-                </div>
-
-                <span class="badge-status ${user.status === "approved" ? "normal" : "alert"}">
-                    ${escapeHTML(user.status || "--")}
-                </span>
-            </div>
-        `).join("");
-    }
+        renderOverviewCharts(allHistoryRecords);
+        renderCurrentStatistic();
+        renderHistoryByDate(allHistoryRecords);
+    });
 
     async function loadPersonalTemperatureThreshold(uid) {
         if (!uid) return;
@@ -1613,36 +1599,6 @@ document.addEventListener("DOMContentLoaded", () => {
                 msg.textContent = "Không thể tải ngưỡng nhiệt độ cá nhân.";
                 msg.className = "setting-message error";
             }
-        }
-    }
-
-    function refreshDashboardWarningByPersonalTemp() {
-        if (!currentRoomState) return;
-
-        const temp = Number(currentRoomState.temperature ?? 0);
-        const hum = Number(currentRoomState.humidity ?? 0);
-        const lux = Number(currentRoomState.light ?? 0);
-        const mode = currentRoomState.mode ?? "nghi_ngoi";
-
-        const warnings = getWarningDetails(temp, hum, lux, mode);
-        const statusEl = document.getElementById("global-status");
-
-        if (!statusEl) return;
-
-        if (warnings.length > 0) {
-            statusEl.className = "status-banner danger";
-            statusEl.innerHTML = `
-                <i class="bx bx-error"></i>
-                <span>
-                    <strong>CẢNH BÁO:</strong> ${warnings.join(" | ")}
-                </span>
-            `;
-        } else {
-            statusEl.className = "status-banner good";
-            statusEl.innerHTML = `
-                <i class="bx bx-check-shield"></i>
-                <span>THÔNG SỐ PHÙ HỢP VỚI NGƯỠNG CÁ NHÂN</span>
-            `;
         }
     }
 
@@ -1710,6 +1666,200 @@ document.addEventListener("DOMContentLoaded", () => {
                     msg.className = "setting-message error";
                 }
             }
+        });
+    }
+
+    function listenAdminData() {
+        if (!isAdmin) return;
+
+        if (!usersListenerStarted) {
+            usersListenerStarted = true;
+
+            db.ref("users").on("value", snapshot => {
+                const users = snapshot.val() || {};
+                renderRegisteredUsers(users);
+            });
+        }
+
+        if (!inviteListenerStarted) {
+            inviteListenerStarted = true;
+
+            db.ref("inviteCodes").on("value", snapshot => {
+                const codes = snapshot.val() || {};
+                renderInviteCodes(codes);
+            });
+        }
+    }
+
+    if (createInviteBtn) {
+        createInviteBtn.addEventListener("click", async () => {
+            if (!isAdmin) {
+                return;
+            }
+
+            const name = inviteName.value.trim();
+            const role = inviteRole.value;
+
+            if (!name) {
+                inviteCreateMessage.textContent = "Vui lòng nhập tên người nhận / username.";
+                inviteCreateMessage.className = "invite-message error";
+                return;
+            }
+
+            try {
+                const code = await generateUniqueInviteCode(role);
+
+                await db.ref(`inviteCodes/${code}`).set({
+                    code: code,
+                    name: name,
+                    role: role,
+                    status: "unused",
+                    createdAt: Date.now(),
+                    createdBy: currentUser.uid,
+                    createdByEmail: currentUserProfile.email || "",
+                    usedBy: null,
+                    usedByName: null,
+                    usedByEmail: null,
+                    usedAt: null
                 });
+
+                inviteCreateMessage.innerHTML = `Đã tạo mã: <strong>${code}</strong>`;
+                inviteCreateMessage.className = "invite-message success";
+
+                inviteName.value = "";
+                inviteRole.value = "customer";
+            } catch (error) {
+                inviteCreateMessage.textContent = "Không thể tạo mã đăng ký.";
+                inviteCreateMessage.className = "invite-message error";
+            }
+        });
+    }
+
+    function renderInviteCodes(codes) {
+        const unusedList = document.getElementById("unused-codes-list");
+        const usedList = document.getElementById("used-codes-list");
+        const unusedCount = document.getElementById("unused-code-count");
+        const usedCount = document.getElementById("used-code-count");
+
+        if (!unusedList || !usedList || !unusedCount || !usedCount) return;
+
+        const codeArray = Object.values(codes).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+        const unusedCodes = codeArray.filter(code => code.status === "unused");
+        const usedCodes = codeArray.filter(code => code.status === "used");
+
+        unusedCount.textContent = unusedCodes.length;
+        usedCount.textContent = usedCodes.length;
+
+        if (unusedCodes.length === 0) {
+            unusedList.innerHTML = `
+                <div class="empty-state small">
+                    <p>Chưa có mã đăng ký nào.</p>
+                </div>
+            `;
+        } else {
+            unusedList.innerHTML = unusedCodes.map(code => `
+                <div class="approval-user-card invite-card">
+                    <div>
+                        <h4>${escapeHTML(code.code)}</h4>
+                        <p>${escapeHTML(code.name || "--")}</p>
+                        <small>
+                            Vai trò:
+                            <span class="role-badge ${getRoleBadgeClass(code.role)}">
+                                ${getRoleLabel(code.role)}
+                            </span>
+                        </small>
+                        <small>Tạo lúc: ${formatTime(code.createdAt)}</small>
+                    </div>
+
+                    <div class="approval-actions">
+                        <button class="btn btn-danger btn-small" data-delete-code="${escapeHTML(code.code)}">
+                            Xóa
+                        </button>
+                    </div>
+                </div>
+            `).join("");
+
+            unusedList.querySelectorAll("[data-delete-code]").forEach(button => {
+                button.addEventListener("click", async () => {
+                    const code = button.dataset.deleteCode;
+
+                    if (confirm(`Xóa mã ${code}?`)) {
+                        await db.ref(`inviteCodes/${code}`).remove();
+                    }
+                });
+            });
+        }
+
+        if (usedCodes.length === 0) {
+            usedList.innerHTML = `
+                <div class="empty-state small">
+                    <p>Chưa có mã nào được sử dụng.</p>
+                </div>
+            `;
+        } else {
+            usedList.innerHTML = usedCodes.map(code => `
+                <div class="approval-user-card invite-card processed">
+                    <div>
+                        <h4>${escapeHTML(code.code)}</h4>
+                        <p>${escapeHTML(code.name || "--")}</p>
+                        <small>
+                            Vai trò:
+                            <span class="role-badge ${getRoleBadgeClass(code.role)}">
+                                ${getRoleLabel(code.role)}
+                            </span>
+                        </small>
+                        <small>Dùng bởi: ${escapeHTML(code.usedByName || "--")} - ${escapeHTML(code.usedByEmail || "--")}</small>
+                        <small>Dùng lúc: ${formatTime(code.usedAt)}</small>
+                    </div>
+
+                    <span class="badge-status normal">used</span>
+                </div>
+            `).join("");
+        }
+    }
+
+    function renderRegisteredUsers(users) {
+        const container = document.getElementById("registered-users-list");
+        const countEl = document.getElementById("registered-user-count");
+        const notifCount = document.getElementById("notif-count");
+
+        if (!container || !countEl) return;
+
+        const userArray = Object.entries(users)
+            .map(([uid, user]) => ({ uid, ...user }))
+            .sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+
+        countEl.textContent = userArray.length;
+        if (notifCount) notifCount.textContent = "0";
+
+        if (userArray.length === 0) {
+            container.innerHTML = `
+                <div class="empty-state small">
+                    <p>Chưa có tài khoản.</p>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = userArray.map(user => `
+            <div class="approval-user-card processed">
+                <div>
+                    <h4>${escapeHTML(user.name || "Người dùng")}</h4>
+                    <p>${escapeHTML(user.email || "--")}</p>
+                    <small>
+                        Vai trò:
+                        <span class="role-badge ${getRoleBadgeClass(user.role)}">
+                            ${getRoleLabel(user.role)}
+                        </span>
+                    </small>
+                    <small>Mã: ${escapeHTML(user.registerCode || "--")}</small>
+                </div>
+
+                <span class="badge-status ${user.status === "approved" ? "normal" : "alert"}">
+                    ${escapeHTML(user.status || "--")}
+                </span>
+            </div>
+        `).join("");
     }
 });
