@@ -361,9 +361,7 @@ body {
     color: var(--primary);
 }
 
-.admin-only {
-    display: none;
-}
+
 
 .sidebar-footer {
     border-top: 1px solid var(--glass-border);
@@ -955,89 +953,7 @@ body {
     border-radius: 12px;
 }
 
-/* CHATBOT */
-.chat-wrapper {
-    height: calc(100vh - 115px);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-}
 
-.chat-header {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    padding: 20px;
-    border-bottom: 1px solid var(--glass-border);
-}
-
-.chat-avatar {
-    width: 42px;
-    height: 42px;
-    border-radius: 50%;
-    background: rgba(59, 130, 246, 0.16);
-    color: var(--primary);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 1.6rem;
-}
-
-.chat-title p {
-    color: var(--text-muted);
-    font-size: 0.86rem;
-}
-
-.chat-messages {
-    flex: 1;
-    padding: 20px;
-    overflow-y: auto;
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-}
-
-.message {
-    display: flex;
-    max-width: 80%;
-}
-
-.bot-msg {
-    align-self: flex-start;
-}
-
-.user-msg {
-    align-self: flex-end;
-}
-
-.msg-bubble {
-    padding: 12px 16px;
-    border-radius: 16px;
-    line-height: 1.45;
-    background: rgba(148, 163, 184, 0.12);
-}
-
-.user-msg .msg-bubble {
-    background: var(--primary);
-    color: white;
-}
-
-.chat-input-area {
-    display: flex;
-    gap: 10px;
-    padding: 16px 20px;
-    border-top: 1px solid var(--glass-border);
-}
-
-#chat-input {
-    flex: 1;
-    border: 1px solid var(--glass-border);
-    background: rgba(148, 163, 184, 0.08);
-    color: var(--text-main);
-    border-radius: 999px;
-    padding: 12px 18px;
-    outline: none;
-}
 
 /* SETTINGS */
 .settings-grid {
@@ -1278,6 +1194,11 @@ input:checked + .slider:before {
     background: rgba(16, 185, 129, 0.16);
 }
 
+.role-technician {
+    color: #8b5cf6;
+    background: rgba(139, 92, 246, 0.16);
+}
+
 /* RESPONSIVE */
 @media (max-width: 1100px) {
     .metrics-grid,
@@ -1345,9 +1266,7 @@ input:checked + .slider:before {
         flex-wrap: wrap;
     }
 
-    .chat-wrapper {
-        height: calc(100vh - 100px);
-    }
+
 
     .mode-value-container h3,
     #val-mode {

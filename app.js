@@ -61,6 +61,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let currentUserProfile = null;
     let isAdmin = false;
     let isCustomer = false;
+    let isTechnician = false;
     let canControlSystem = false;
 
     let currentRoomState = null;
@@ -93,6 +94,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function getRoleLabel(role) {
         if (role === "admin") return "Admin";
+        if (role === "technician") return "Kỹ thuật";
         if (role === "customer") return "Khách hàng";
         if (role === "user") return "Khách hàng";
         return "Khách hàng";
@@ -100,6 +102,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function getRoleBadgeClass(role) {
         if (role === "admin") return "role-admin";
+        if (role === "technician") return "role-technician";
         if (role === "customer") return "role-customer";
         if (role === "user") return "role-customer";
         return "role-customer";
@@ -112,6 +115,7 @@ document.addEventListener("DOMContentLoaded", () => {
     function generateInviteCode(role) {
         const prefixMap = {
             customer: "KH",
+            technician: "KT",
             admin: "AD"
         };
 
@@ -172,12 +176,30 @@ document.addEventListener("DOMContentLoaded", () => {
         currentUserProfile = profile;
 
         isAdmin = profile.role === "admin";
+        isTechnician = profile.role === "technician";
         isCustomer = profile.role === "customer" || profile.role === "user";
         canControlSystem = true;
 
-        document.querySelectorAll(".admin-only").forEach(item => {
-            item.style.display = isAdmin ? "flex" : "none";
+        navLinks.forEach(li => {
+            const target = li.dataset.target;
+            if (target === "dashboard-page" || target === "settings-page") {
+                li.style.display = "flex";
+            } else if (target === "statistics-page" || target === "history-page") {
+                li.style.display = (isAdmin || isTechnician) ? "flex" : "none";
+            } else if (target === "accounts-page") {
+                li.style.display = (isAdmin || isTechnician) ? "flex" : "none";
+            }
         });
+
+        const inviteCreatePanel = document.getElementById("invite-create-panel");
+        const unusedCodesPanel = document.getElementById("unused-codes-panel");
+        const usedCodesPanel = document.getElementById("used-codes-panel");
+        const regTitle = document.getElementById("registered-users-title");
+
+        if (inviteCreatePanel) inviteCreatePanel.style.display = isAdmin ? "block" : "none";
+        if (unusedCodesPanel) unusedCodesPanel.style.display = isAdmin ? "block" : "none";
+        if (usedCodesPanel) usedCodesPanel.style.display = isAdmin ? "block" : "none";
+        if (regTitle) regTitle.textContent = isTechnician ? "Danh sách tài khoản" : "Tài khoản đã đăng ký";
 
         document.getElementById("sidebar-user-name").textContent = profile.name || "Người dùng";
         document.getElementById("setting-user-email").textContent = profile.email || "--";
@@ -212,8 +234,8 @@ document.addEventListener("DOMContentLoaded", () => {
             renderHistoryByDate(allHistoryRecords);
         }
 
-        if (targetId === "accounts-page" && isAdmin) {
-            listenAdminData();
+        if (targetId === "accounts-page" && (isAdmin || isTechnician)) {
+            listenAccountData();
         }
     }
 
@@ -363,10 +385,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
     navLinks.forEach(link => {
         link.addEventListener("click", () => {
-            const targetId = link.dataset.target;
+            let targetId = link.dataset.target;
 
-            if (targetId === "accounts-page" && !isAdmin) {
-                return;
+            if (targetId === "accounts-page" && !isAdmin && !isTechnician) {
+                targetId = "dashboard-page";
+            }
+            if ((targetId === "statistics-page" || targetId === "history-page") && isCustomer) {
+                targetId = "dashboard-page";
             }
 
             goToPage(targetId);
@@ -1066,8 +1091,8 @@ document.addEventListener("DOMContentLoaded", () => {
         `;
     }
 
-    function listenAdminData() {
-        if (!isAdmin) return;
+    function listenAccountData() {
+        if (!isAdmin && !isTechnician) return;
 
         if (!usersListenerStarted) {
             usersListenerStarted = true;
@@ -1078,7 +1103,7 @@ document.addEventListener("DOMContentLoaded", () => {
             });
         }
 
-        if (!inviteListenerStarted) {
+        if (isAdmin && !inviteListenerStarted) {
             inviteListenerStarted = true;
 
             db.ref("inviteCodes").on("value", snapshot => {
@@ -1386,104 +1411,4 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    const chatInput = document.getElementById("chat-input");
-    const chatSendBtn = document.getElementById("chat-send-btn");
-    const chatMessages = document.getElementById("chat-messages");
-
-    const GEMINI_API_KEY = "DAN_GEMINI_API_KEY_CUA_BAN";
-    const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
-
-    function addMessageToUI(text, sender) {
-        const msgDiv = document.createElement("div");
-        msgDiv.className = `message ${sender}-msg`;
-        msgDiv.innerHTML = `<div class="msg-bubble">${escapeHTML(text)}</div>`;
-
-        chatMessages.appendChild(msgDiv);
-        chatMessages.scrollTop = chatMessages.scrollHeight;
-    }
-
-    async function sendToGemini(userText) {
-        if (!GEMINI_API_KEY || GEMINI_API_KEY === "AIzaSyDJB7UVh78AjXjFlwI1y3EgTX__-Y0bJZA") {
-            addMessageToUI("Bạn chưa cấu hình Gemini API key trong app.js.", "bot");
-            return;
-        }
-
-        chatSendBtn.disabled = true;
-        chatSendBtn.innerHTML = "<i class='bx bx-loader-alt bx-spin'></i>";
-
-        try {
-            let contextStr = "Chưa có dữ liệu phòng.";
-
-            if (currentRoomState) {
-                const modeText = currentRoomState.mode === "hoc_tap" ? "HỌC TẬP" : "NGHỈ NGƠI";
-
-                contextStr =
-                    `Nhiệt độ: ${Number(currentRoomState.temperature).toFixed(1)}°C, ` +
-                    `Độ ẩm: ${Number(currentRoomState.humidity).toFixed(0)}%, ` +
-                    `Ánh sáng: ${Number(currentRoomState.light).toFixed(0)} Lux, ` +
-                    `Chế độ: ${modeText}, ` +
-                    `Ngưỡng nhiệt độ cá nhân: ${personalTempMax}°C.`;
-            }
-
-            const prompt =
-                `Bạn là trợ lí thông minh RoomGuard. ` +
-                `Tình trạng phòng hiện tại: ${contextStr} ` +
-                `Hãy trả lời ngắn gọn, dễ hiểu bằng tiếng Việt, không dùng markdown. ` +
-                `Câu hỏi người dùng: ${userText}`;
-
-            const response = await fetch(GEMINI_URL, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                    contents: [
-                        {
-                            parts: [
-                                {
-                                    text: prompt
-                                }
-                            ]
-                        }
-                    ]
-                })
-            });
-
-            const data = await response.json();
-
-            if (!response.ok) {
-                addMessageToUI(`Lỗi từ API: ${data.error?.message || response.statusText}`, "bot");
-                return;
-            }
-
-            const botReply =
-                data.candidates?.[0]?.content?.parts?.[0]?.text ||
-                "Xin lỗi, mình không thể trả lời lúc này.";
-
-            addMessageToUI(botReply.replace(/\*/g, ""), "bot");
-        } catch (error) {
-            addMessageToUI("Đã xảy ra lỗi kết nối với Gemini.", "bot");
-        } finally {
-            chatSendBtn.disabled = false;
-            chatSendBtn.innerHTML = "<i class='bx bx-send'></i>";
-        }
-    }
-
-    function handleChatSend() {
-        const text = chatInput.value.trim();
-
-        if (!text) return;
-
-        addMessageToUI(text, "user");
-        chatInput.value = "";
-        sendToGemini(text);
-    }
-
-    chatSendBtn.addEventListener("click", handleChatSend);
-
-    chatInput.addEventListener("keypress", (e) => {
-        if (e.key === "Enter") {
-            handleChatSend();
-        }
-    });
 });

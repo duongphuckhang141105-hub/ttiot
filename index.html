@@ -107,17 +107,12 @@
                     <span>Lịch Sử</span>
                 </li>
 
-                <li data-target="chatbot-page">
-                    <i class="bx bx-bot"></i>
-                    <span>Chatbot</span>
-                </li>
-
                 <li data-target="settings-page">
                     <i class="bx bx-cog"></i>
                     <span>Cài Đặt</span>
                 </li>
 
-                <li data-target="accounts-page" class="admin-only">
+                <li data-target="accounts-page">
                     <i class="bx bx-user-check"></i>
                     <span>Tài Khoản</span>
                 </li>
@@ -338,35 +333,6 @@
                     </div>
                 </section>
 
-                <section id="chatbot-page" class="page">
-                    <div class="chat-wrapper glass-panel">
-                        <div class="chat-header">
-                            <div class="chat-avatar">
-                                <i class="bx bx-bot"></i>
-                            </div>
-                            <div class="chat-title">
-                                <h3>RoomGuard AI Assistant</h3>
-                                <p>Sẵn sàng giải đáp tình trạng phòng</p>
-                            </div>
-                        </div>
-
-                        <div class="chat-messages" id="chat-messages">
-                            <div class="message bot-msg">
-                                <div class="msg-bubble">
-                                    Xin chào! Mình là trợ lí AI. Bạn cần thông tin gì về môi trường phòng hiện tại?
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="chat-input-area">
-                            <input type="text" id="chat-input" placeholder="Nhập câu hỏi..." autocomplete="off">
-                            <button id="chat-send-btn" class="btn btn-primary btn-icon">
-                                <i class="bx bx-send"></i>
-                            </button>
-                        </div>
-                    </div>
-                </section>
-
                 <section id="settings-page" class="page">
                     <div class="settings-grid">
                         <div class="settings-card glass-panel">
@@ -446,7 +412,7 @@
                             </div>
                         </div>
 
-                        <div class="invite-create-box mt-3">
+                        <div class="invite-create-box mt-3" id="invite-create-panel">
                             <div class="invite-form-card">
                                 <h4>Tạo mã đăng ký</h4>
                                 <p class="muted-text">Gửi mã này cho người được phép đăng ký tài khoản.</p>
@@ -456,6 +422,7 @@
 
                                     <select id="invite-role" class="form-control">
                                         <option value="customer">Khách hàng</option>
+                                        <option value="technician">Kỹ thuật</option>
                                         <option value="admin">Admin phụ</option>
                                     </select>
 
@@ -470,7 +437,7 @@
                         </div>
 
                         <div class="approval-grid mt-3">
-                            <div class="approval-panel">
+                            <div class="approval-panel" id="unused-codes-panel">
                                 <div class="approval-panel-header">
                                     <h4>Mã chưa sử dụng</h4>
                                     <span id="unused-code-count">0</span>
@@ -483,9 +450,9 @@
                                 </div>
                             </div>
 
-                            <div class="approval-panel">
+                            <div class="approval-panel" id="registered-users-panel">
                                 <div class="approval-panel-header">
-                                    <h4>Tài khoản đã đăng ký</h4>
+                                    <h4 id="registered-users-title">Tài khoản đã đăng ký</h4>
                                     <span id="registered-user-count">0</span>
                                 </div>
 
@@ -497,7 +464,7 @@
                             </div>
                         </div>
 
-                        <div class="approval-panel mt-3">
+                        <div class="approval-panel mt-3" id="used-codes-panel">
                             <div class="approval-panel-header">
                                 <h4>Mã đã sử dụng</h4>
                                 <span id="used-code-count">0</span>
