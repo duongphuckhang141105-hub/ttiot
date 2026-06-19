@@ -177,15 +177,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
         isAdmin = profile.role === "admin";
         isTechnician = profile.role === "technician";
-        isCustomer = profile.role === "customer" || profile.role === "user";
+        isCustomer = profile.role === "customer" || profile.role === "user" || profile.role === "khach_hang";
         canControlSystem = true;
 
         navLinks.forEach(li => {
             const target = li.dataset.target;
-            if (target === "dashboard-page" || target === "settings-page") {
+            if (target === "dashboard-page" || target === "settings-page" || target === "statistics-page" || target === "history-page") {
                 li.style.display = "flex";
-            } else if (target === "statistics-page" || target === "history-page") {
-                li.style.display = (isAdmin || isTechnician) ? "flex" : "none";
             } else if (target === "accounts-page") {
                 li.style.display = (isAdmin || isTechnician) ? "flex" : "none";
             }
@@ -388,9 +386,6 @@ document.addEventListener("DOMContentLoaded", () => {
             let targetId = link.dataset.target;
 
             if (targetId === "accounts-page" && !isAdmin && !isTechnician) {
-                targetId = "dashboard-page";
-            }
-            if ((targetId === "statistics-page" || targetId === "history-page") && isCustomer) {
                 targetId = "dashboard-page";
             }
 
